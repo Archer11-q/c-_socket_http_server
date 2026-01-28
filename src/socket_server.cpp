@@ -51,10 +51,24 @@ int main() {
 
     //5.1从纯字节流到HTTP协议处理
     std::string request(buffer);  //字节流转字符串，适配HTTP解析
-    std::cout<<"收到HTTP请求: \n"<<request<<std::endl;
+    std::string response_body;  //初始化响应体，存储差异化内容
+    bool is_valid_get = false;  //标记是否为合法GET请求
 
-    //5.2构造标准HTTP/1.1响应（仅支持/路径，符合协议规范：响应行+响应头+空行+响应体
-    std::string response_body="Hello Minimal HTTP Server!(Path: /)";
+    //5.2三个根路径精准匹配
+    if(request.find("GET / HTTP/1.1")==0) {
+      //匹配根路径/
+      response_body="Hello HTTP Server!(Support: / or /index);
+      is_valid_get=true;
+    } else if(request.find("GET /index HTTP/1.1")==0) {
+        //匹配/index路径，与/逻辑一样
+        response_body="Hello HTTP Server!(Support: / or /index)";
+        is_valid_get=true;
+    } else if(request.find("GET /about HTTP/1.1") == 0) {
+        //匹配/about路径，构造专属静态文本响应体
+        response_body="Server Info: C++ Single File Dev | Support Paths: /,/index,/about";
+        is_valid_get=true;
+    }
+    //5.3构造标准HTTP/1.1响应（仅支持/路径，符合协议规范：响应行+响应头+空行+响应体
     std::string http_response="HTTP/1.1 200 OK\r\n"; 		     //响应行
     http_response += "Content-Type: text/plain; clarset=utf-8\r\n";  //文本格式
     http_response += "Content-Length: "+std::to_string(response_body.size())+"\r\n";  //自动计算文本长度
