@@ -5,7 +5,7 @@
 #include<iostream>
 
 const int PORT = 8080;
-const int BUF_SIZE =1024;
+const int BUF_SIZE =2048;
 
 int main() {
   //1.创建Socket(IPv4+TCP)
@@ -35,6 +35,8 @@ int main() {
     return 1;
   }
 
+  std::cout<<"[阶段2：最小HTTP Server] 启动，监听8080端(支持GET/单路径)"<<std::endl;
+
   //5.循环接受连接+字节流回显
   while(1) {
     int client_fd=accept(server_fd,nullptr,nullptr);
@@ -47,8 +49,20 @@ int main() {
       continue;
     }
 
-    std::cout<<"收到TCP数据："<<buffer <<std::endl;
-    send(client_fd,buffer,reve_len,0);  //纯字节流回显
+    //5.1从纯字节流到HTTP协议处理
+    std::string request(buffer);  //字节流转字符串，适配HTTP解析
+    std::cout<<"收到HTTP请求: \n"<<request<<std::endl;
+
+    //5.2构造标准HTTP/1.1响应（仅支持/路径，符合协议规范：响应行+响应头+空行+响应体
+    std::string response_body="Hello Minimal HTTP Server!(Path: /)";
+    std::string http_response="HTTP/1.1 200 OK\r\n"; 		     //响应行
+    http_response += "Content-Type: text/plain; clarset=utf-8\r\n";  //文本格式
+    http_response += "Content-Length: "+std::to_string(response_body.size())+"\r\n";  //自动计算文本长度
+    http_response += "Connection: close\r\n";  //短连接格式
+    http_response += "\r\n";  //强制换行，留出空白行
+    http_response += response_body;  //响应体内容
+
+    send(client_fd,http_response.c_str(),http_response.size(),0);  //发送HTTP响应，替代纯字节流
     close(client_fd);
   }
 
