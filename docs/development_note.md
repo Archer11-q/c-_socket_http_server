@@ -13,6 +13,11 @@
 -功能: 支持/、/index、/about三路径访问,兼容浏览器/nc访问
 -复用: Sockct底层和HTTP基础协议代码不变
 
+###版本4：
+-完成项目多模块拆分重构，拆分为main入口、net网络模块、http业务处理模块、移除旧单文件socket_server.cpp
+-修改CMakeLists.txt, 适配多文件编译，完成本地构建与功能验证
+-在feature/http_server分支上完成代码提交，推送至远程github仓库
+
 ##关键收获
 1.HTTP是TCP之上的应用层协议: TCP负责底层字节流传输，HTTP定义传输格式
 2.真实开发: 核心文件迭代修改, 通过Git标签追溯历史版本, 避免改错无法修复
