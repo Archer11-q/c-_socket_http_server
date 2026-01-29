@@ -12,9 +12,26 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 #编译产物输出目录（统一到build/bin，隔离源码，src目录保持干净）
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+#多模块源文件: 所有.cpp文件路径
+set(SOURCE
+    src/main.cpp
+    src/net/TcpServer.cpp
+    src/http/HttpHandler.cpp
+)
+
+#头文件目录
+include_directories(
+    src/
+    src/net/
+    src/http/
+)
+
 #编译源码文件src/socket_server.cpp，生成可执行文件http_server
-add_executable(http_server src/socket_server.cpp)
+add_executable(http_server ${SOURCE})
 
 #链接系统线程库(Socket通信基础依赖，避免编译警告)
 target_link_libraries(http_server PRIVATE pthread)
 
+# 编译提示
+message(STATUS "多模块编译完成，可执行文件：build/bin/http_server")
+message(STATUS "运行命令：./build/bin/http_server")
