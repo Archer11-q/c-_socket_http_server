@@ -5,29 +5,17 @@
 #include <unistd.h>	//线程、文件依赖
 #include <cstring>	//字符串操作依赖
 #include <iostream>
+#include"utils/Logger.h"//cout、cerr替换
 
 int main() {
-    //1. 调用网络模块，初始化TCP服务
-    int server_fd = tcp_server_init();
-    if (server_fd < 0) {
-        return 1;
-    }
-    std::cout << "【HTTP Server】多模块版启动成功，监听8080端口" << std::endl;
- 
-    //2.主循环：接收连接，调用HTTP模块处理
-    struct sockaddr_in client_addr;  //创建客户端地址结构
-    socklen_t addr_len=sizeof(client_addr); //获取地址结构长度
-    while(true) {
-      int client_fd=accept(server_fd,(struct sockaddr*)&client_addr,&addr_len);
-      if (client_fd < 0) {
-            perror("accept failed");
-            continue;
-      }
-      // 调用HTTP模块的处理函数，TCP/HTTP彻底解耦
-      handle_client(client_fd);
-      close(client_fd);
-    }
-
-    close(server_fd);
-    return 0;
+  Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
+  try {
+    TcpServer tcp_server;	//创建TCP服务实例，自动调用构造函数初始化
+    LOG_INFO("HTTP多进程并发服务器启动成功，监听8080端口");
+    tcp_server.start();	//启动并发服务主循环
+  } catch(const std::exception& e) {
+    LOG_ERROR("服务器启动失败: " + std::string(e.what()));  
+    return 1;
+  }
+  return 0;
 }

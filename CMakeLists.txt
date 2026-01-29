@@ -17,6 +17,7 @@ set(SOURCE
     src/main.cpp
     src/net/TcpServer.cpp
     src/http/HttpHandler.cpp
+    src/utils/Logger.cpp
 )
 
 #头文件目录
@@ -24,6 +25,7 @@ include_directories(
     src/
     src/net/
     src/http/
+    src/utils/
 )
 
 #编译源码文件src/socket_server.cpp，生成可执行文件http_server
