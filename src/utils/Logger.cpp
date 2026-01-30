@@ -21,14 +21,14 @@ static std::string getCurrentTime() {
 }
 
 //私有构造函数
-Logger::Logger() = default;
+Logger::Logger() = default;	//显示默认构造函数，成员变量默认初始化
 
 //类外初始化静态成员：完成类型+类名
 Logger *Logger::instance =nullptr;
 
 //单例模式getInstance，全局唯一实例，线程安全
 Logger& Logger::getInstance() {
-  if(instance==nullptr)
+  if(instance==nullptr)	//判断实例是否已被创建
     instance=new Logger();	//仅首次调用初始化，全局唯一
   return *instance;
 }

@@ -8,7 +8,7 @@
 #include"utils/Logger.h"//cout、cerr替换
 
 int main() {
-  Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
+  Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");	//指定日志持久化存储路径与文件名
   try {
     TcpServer tcp_server;	//创建TCP服务实例，自动调用构造函数初始化
     LOG_INFO("HTTP多进程并发服务器启动成功，监听8080端口");

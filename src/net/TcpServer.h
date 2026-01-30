@@ -9,6 +9,7 @@
 #include <iostream>
 #include<sys/wait.h>	//wait依赖
 #include<signal.h>	//信号处理依赖
+#include "../utils/Logger.h"    //替换cerr,perror
 
 //前置声明: 避免头文件重复包含，仅声明类不引入头文件
 class HttpHandler;

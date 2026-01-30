@@ -1,6 +1,5 @@
 #include "TcpServer.h"
 #include "http/HttpHandler.h"	//仅在.cpp文件引入头文件，避免重复包含
-#include "../utils/Logger.h"	//替换cerr,perror
 
 //处理僵尸进程
 void sigchld_handler(int sig) {
@@ -22,7 +21,7 @@ TcpServer::TcpServer() : server_fd(-1) {
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));  //地址+端口复用
 
     // 3. 配置服务端地址
-    struct sockaddr_in server_addr;  //简化地质结构初始化
+    struct sockaddr_in server_addr;  //简化地址结构初始化
     memset(&server_addr, 0, sizeof(server_addr));       //清空数据，避免随机值干扰
     server_addr.sin_family = AF_INET;   //IPv4
     server_addr.sin_port = htons(PORT); //转化为网络字节序

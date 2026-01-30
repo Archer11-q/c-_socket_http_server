@@ -8,6 +8,7 @@
 #include <iostream>
 #include<fstream>  //文件操作依赖
 #include<sstream>  //MIME类型解析依赖
+#include"../utils/Logger.h"
 
 //HTTP相关常量
 const uint32_t BUF_SIZE = 4096; // 接收缓冲区大小
