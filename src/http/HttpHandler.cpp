@@ -13,7 +13,8 @@ std::string HttpHandler::parse_http_path(const std::string& request) {
 //向客户端发送指定路径对应的静态文件，判断是否发送成功
 bool HttpHandler::serverStaticFile(int client_fd,const std::string& path) {
   //安全限制：只允许访问public目录下的文件，拼接安全路径
-  std::string safe_path="public"+path;
+  std::string project_root = "/home/archer/projects/cpp_socket_http_server";
+  std::string safe_path = project_root + "/public" + path;  
 
   //防止路径遍历攻击，避免访问上级目录文件
   if(safe_path.find("..")!=std::string::npos)
@@ -82,20 +83,40 @@ void HttpHandler::handleRequest(int client_fd) {
   ssize_t recv_len=recv(client_fd,buffer,BUF_SIZE-1,0);
   if(recv_len<=0) return;
 
-  std::string request(buffer,recv_len);  //将buffer转化为字符串类型
+  //复用select模式接口，避免重复
+  handleRequest(client_fd,buffer,recv_len);
+
+  //fork模式专属：处理完请求关闭fd
+  close(client_fd);
+  std::string log_msg = "Client fd=" + std::to_string(client_fd) + " request handled, connetion close(fork mode)";
+  LOG_INFO(log_msg.c_str());
+}
+
+void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length) {
+  LOG_INFO("Client connected, start handle HTTP request (select mode)");
+  std::string request(buffer,length);  //将buffer转化为字符串类型
   std::string path=this->parse_http_path(request);  //截取路径
 
   //静态优先，动态兜底
-  if(path.find('.')!=std::string::npos)	{//判断是否为文件请求
+  if(path.find('.')!=std::string::npos) {//判断是否为文件请求
     if(this->serverStaticFile(client_fd,path)) {
       LOG_DEBUG("Static file served: " + path);
-      return;	//静态文件服务成功，避免重复发送动态响应
+      return;   //静态文件服务成功，避免重复发送动态响应
     }
+  std::string log_msg = "Static file not found: " + path + ",failback to dynamic response";
+  LOG_INFO(log_msg.c_str());  
   }
 
   //启动动态响应
   std::string response = this->build_http_response(path); //根据路径实现差异化处理
-  send(client_fd,response.c_str(),response.size(),0);
+  ssize_t send_len=send(client_fd,response.c_str(),response.size(),0);
+  if(send_len<0) {
+    std::string log_msg = "Send dynamic response failed for fd=" + std::to_string(client_fd);
+    LOG_DEBUG(log_msg.c_str());
+  } else {
+      std::string log_msg = "Dynamic response sent " + path + ", length=" + std::to_string(send_len);
+      LOG_DEBUG(log_msg.c_str());
+  }
 }
 
 //获取文件路径后缀名

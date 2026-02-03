@@ -1,5 +1,5 @@
 #ifndef HTTPHANDLER_H
-#define HTTPHANDLER_
+#define HTTPHANDLER_H
 
 #include <string>
 #include <cstdint>
@@ -26,6 +26,9 @@ public:
   bool serverStaticFile(int client_fd,const std::string& path);
   //获取文件路径后缀名
   std::string getMimeType(const std::string& file_path);
+
+  //重载Select模式接口
+  void handleRequest(int client_fd,const char* buffer,size_t length);
 private:
 
 };
