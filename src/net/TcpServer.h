@@ -13,6 +13,10 @@
 #include<sys/select.h>	//select依赖
 #include<vector>	//vector依赖
 #include<algorithm>	
+#include<sys/epoll.h>	//epoll依赖
+#include<fcntl.h>	//fcntl依赖
+#include<errno.h>	//errno依赖
+
 
 //前置声明: 避免头文件重复包含，仅声明类不引入头文件
 class HttpHandler;
@@ -30,7 +34,7 @@ public:
   //析构函数：关闭socket，释放资源
   ~TcpServer();
   //IO模式枚举【FORK/SELECT】
-  enum class Mode {FORK,SELECT};
+  enum class Mode {FORK,SELECT,EPOLL};
   //设置运行模式的接口
   void setMode(Mode mode) {mode_=mode;}
 private:
@@ -41,6 +45,8 @@ private:
   void startWithSelect();
   //重构：原有fork逻辑迁移到该方法
   void startWithFork();
+  //声明Epoll模式的核心方法
+  void startWithEpoll();
 };
 
 #endif 	

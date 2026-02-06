@@ -18,6 +18,10 @@ int main(int argc,char *argv[]) {
       tcp_server.setMode(TcpServer::Mode::SELECT);
       std::string log_msg = "HTTP Select模式服务器启动成功，监听8080端口";
       LOG_INFO(log_msg.c_str());
+    } else if(argc >= 2 && std::string(argv[1])=="epoll") {
+        tcp_server.setMode(TcpServer::Mode::EPOLL);
+        std::string log_msg = "HTTP Epoll+ET模式服务器启动成功，监听8080端口";
+        LOG_INFO(log_msg.c_str()); 
     } else {
         std::string log_msg = "HTTP多进程并发服务器启动成功，监听8080端口";
         LOG_INFO(log_msg.c_str());
