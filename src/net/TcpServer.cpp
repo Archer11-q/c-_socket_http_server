@@ -8,7 +8,7 @@ void sigchld_handler(int sig) {
 }
 
 //构造函数：实现原tcp_server_init的逻辑，初始化并赋值server_fd
-TcpServer::TcpServer() : server_fd(-1) {
+TcpServer::TcpServer() : server_fd(-1), epoll_fd_(-1), ready_events_(nullptr) {
     // 1. 创建Socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
@@ -53,11 +53,25 @@ TcpServer::TcpServer() : server_fd(-1) {
 
 //析构函数: 释放socket资源
 TcpServer::~TcpServer() {
+  if(epoll_fd_>=0) {
+    close(epoll_fd_);
+    LOG_INFO(("【Tcp Server】epoLl实例已释放，fd="+std::to_string(epoll_fd_)).c_str());
+  }
+
+  if(!connections_.empty()) {
+    for(const auto& pair: connections_) {
+      close(pair.first);
+      LOG_INFO(("【Tcp Server】清理残留连接：fd="+std::to_string(pair.first)).c_str());
+    }
+    connections_.clear();
+  }
+
   if(server_fd>=0) {
     close(server_fd);
     LOG_INFO("【Tcp Server】socket资源已释放");
   }
 }
+
 
 //启动服务主循环，实现fork多进程并发
 void TcpServer::start() {
@@ -173,9 +187,9 @@ void TcpServer::startWithSelect() {
 //Epoll模式单函数实现
 void TcpServer::startWithEpoll() {
     //1.创建epoll实例，内核创建事件表，返回epoll文件描述符
-    int epoll_fd = epoll_create1(0);	
-    if (epoll_fd < 0) { 
-        LOG_SYS_ERROR("epoll_create1 failed"); 
+    epoll_fd_ = epoll_create1(0);
+    if (epoll_fd_ < 0) {
+        LOG_SYS_ERROR("epoll_create1 failed");
         exit(EXIT_FAILURE);	//创建失败退出
     }
 
@@ -186,60 +200,171 @@ void TcpServer::startWithEpoll() {
     listen_ev.events = EPOLLIN;		//监听读事件
 
     //将监听fd添加到epoll内和事件列表
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &listen_ev);
+    epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd, &listen_ev);
 
     //3.定义就绪事件数组，存放epoll_wait返回的就绪fd事件
     epoll_event ready_events[1024];
-    LOG_INFO("【Epoll+ET模式】服务器启动，单次最大监听事件数：1024");
+    LOG_INFO("【Epoll模式】服务器启动，单次最大监听事件数：1024");
 
     //4.epoll主事件循环：持续检测就绪fd，不退出直到进程终止
     while (true) {
-	//阻塞等待就绪事件：永久阻塞，内核主动通知，无需轮询所有fd
-        int ready_num = epoll_wait(epoll_fd, ready_events, 1024, -1);
-        if (ready_num < 0) {	//被信号中断则继续循环 
-	    if (errno == EINTR) 
+	    //阻塞等待就绪事件：设置5s超时，内核主动通知，无需轮询所有fd
+      int ready_num = epoll_wait(epoll_fd_, ready_events, 1024, EPOLL_CHECK_INTERVAL);
+      if (ready_num < 0) {	//被信号中断则继续循环
+	      if (errno == EINTR)
 	        continue;
-	 }
-	
-	//5.遍历所有就绪事件，处理每个就绪fd
-        for (int i = 0; i < ready_num; ++i) {
-            int fd = ready_events[i].data.fd;	//获取当前就绪fd
-            uint32_t events = ready_events[i].events;//获取当前fd的就绪事件类型
-	    
-	    //6.处理监听fd就绪，有新的客户端TCP连接建立
-            if (fd == server_fd) {
-		//接收连接+设置fd为非阻塞
-                int client_fd = accept4(server_fd, nullptr, nullptr, SOCK_NONBLOCK);
-                if (client_fd < 0) continue;
-		
-		//初始化客户端fd的事件结构，注册EPOLLIN|EPOLLET
-                epoll_event client_ev;
-                memset(&client_ev, 0, sizeof(client_ev));
-                client_ev.data.fd = client_fd;
-                client_ev.events = EPOLLIN | EPOLLET;	
-		//将客户端fd添加到epoll内核事件列表，监听读事件
-                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev);
-                LOG_INFO(("【Epoll模式】新连接：fd=" + std::to_string(client_fd)).c_str());
-            }
-	    //7.处理客户端fd就绪：有HTTP请求数据到达
-            else if (events & EPOLLIN) {	//读取数据
-                char buffer[4096] = {0};
-                ssize_t n = recv(fd, buffer, 4095, 0);
-		 
-		//8.读取到有效数据，调用HttpHandler处理请求
-                if (n > 0) {
-                    LOG_INFO(("【Epoll】fd=" + std::to_string(fd) + " 开始处理HTTP请求").c_str());
-                    HttpHandler handler;
-                    handler.handleRequest(fd, buffer, n);
-                    LOG_INFO(("【Epoll】fd=" + std::to_string(fd) + " HTTP请求处理完成").c_str());
-                }
+        //异常：epoll_wait失败，退出循环
+        LOG_SYS_ERROR("epoll_wait failed");
+        break;
+	    } else if(ready_num==0) { //超时
+        checkIdleConnections(); //空闲连接检查
+        continue;
+      }
 
-		//9.HTTP短连接：处理完一次请求，立即删除事件，关闭fd
-                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, nullptr);
-                close(fd);
-                LOG_INFO(("【Epoll模式】连接关闭：fd=" + std::to_string(fd)).c_str());
-            }
+	    //5.遍历所有就绪事件，处理每个就绪fd
+      for (int i = 0; i < ready_num; ++i) {
+        int fd = ready_events[i].data.fd;	//获取当前就绪fd
+        uint32_t events = ready_events[i].events;//获取当前fd的就绪事件类型
+
+	      //6.处理监听fd就绪，有新的客户端TCP连接建立
+        if (fd == server_fd) {
+		      //接收连接+设置fd为非阻塞
+          int client_fd = accept4(server_fd, nullptr, nullptr, SOCK_NONBLOCK);
+          if (client_fd < 0) continue;
+          connections_[client_fd]={time(nullptr)};  //初始化连接活跃时间
+
+		      //初始化客户端fd的事件结构，注册EPOLLIN|EPOLLET
+          epoll_event client_ev;
+          memset(&client_ev, 0, sizeof(client_ev));
+          client_ev.data.fd = client_fd;
+          client_ev.events = EPOLLIN | EPOLLET;
+		      //将客户端fd添加到epoll内核事件列表，监听读事件
+          epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &client_ev);
+          LOG_INFO(("【Epoll模式】新连接：fd=" + std::to_string(client_fd)).c_str());
         }
-    }
-    close(epoll_fd);
+	      //7.处理客户端fd就绪：有HTTP请求数据到达
+        else if (events & EPOLLIN) {	//读取数据
+          if(connections_.count(fd))  //判断fd是否存在服务器连接池
+            connections_[fd].last_active=time(nullptr); //更新最后活跃时间
+
+          std::vector<char> buffer=buffer_pool_.acquire();//从内存中获取缓冲区
+          std::string req_buffer; //缓存所有读取的数据，解决粘包
+          ssize_t recv_len = 0;   //存储每次调用recv读取的字节数
+          bool is_conn_close=false; //标记连接是否需要关闭
+
+          //7.1循环读取数据：一次性读完所有可用数据
+          while((recv_len=recv(fd,buffer.data(),buffer.size()-1,0))>0)          {
+            req_buffer.append(buffer.data(),recv_len);//将读取的数据追加到缓存
+            memset(buffer.data(),0,buffer.size());  //清空临时缓冲区
+          }
+
+          //7.2处理recv返回-1的情形
+          if(recv_len==0) { //客户端主动关闭连接
+            LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 客户端主动关闭连接").c_str());
+            is_conn_close=true;
+          } else if(recv_len<0) {
+              if(errno!=EAGAIN && errno!=EWOULDBLOCK) {
+                LOG_SYS_ERROR(("【Epoll】fd="+std::to_string(fd)+" recv failed").c_str());
+                is_conn_close=true;
+              }
+              //EAGAIN/EWOULDBLOCK数据已读完，无需处理
+          }
+
+          //7.3解析并处理缓存中的HTTP请求：循环解析+解决粘包
+          if(!is_conn_close && !req_buffer.empty()) {
+            size_t offset=0;  //移动指针，跳过已读数据包，指向下一个数据包起始位置
+            HttpHandler handler;
+
+            while(offset<req_buffer.size()) { //循环检查是否读取完
+              //调用HttpHandler接口，判断当前偏移后的数据是否是完整请求
+              size_t remain_len=req_buffer.size()-offset;
+
+              //处理单个完整HTTP请求，获取长连接状态
+              bool keep_alive=false;
+              handler.handleRequest(fd,req_buffer.c_str()+offset,remain_len,keep_alive);
+
+              //找到当前请求的结束位置，更新偏移量
+              size_t req_end=req_buffer.find("\r\n\r\n",offset)+4;
+              offset=req_end;
+
+              //短连接：处理完当前请求后，标记关闭，不再处理后续请求
+              if(!keep_alive) {
+                is_conn_close=true;
+                break;
+              }
+            } //循环检查关闭
+
+            //长连接/半包
+            if(!is_conn_close)
+              LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 长连接复用/等待半包数据").c_str());
+          }   //退出处理HTTP请求判断
+          
+          //统一归还缓冲区
+          buffer_pool_.release(std::move(buffer));
+
+          //最终判断：是否关闭连接
+          if(is_conn_close)  {
+            closeConnection(fd); //关闭fd，自动移除connctions_
+          }
+        }     //退出读取事件判断
+      }       //退出遍历所有就绪事件循环
+    }         //退出epoll主循环
+    //8.关闭epoll实例
+    close(epoll_fd_);
+    LOG_INFO("【Epoll模式】服务器停止，epoll实例已关闭");
 }
+
+
+//超时检查
+void TcpServer::checkIdleConnections() {
+  time_t now=time(nullptr);   //获取当前系统时间
+  std::vector<int> to_close;  //暂存需要关闭的文件描述符
+
+  //遍历连接容器，筛选超时连接
+  for(const auto& pair:connections_) {
+    if(now-pair.second.last_active > MAX_IDLE_TIME) {//当前空闲时间>预设空闲时间
+      to_close.push_back(pair.first); //将该连接的fd添加到关闭列表中
+      LOG_INFO(("连接超时，fd="+std::to_string(pair.first)).c_str());
+    }
+  }
+
+  //批量关闭超时连接
+  for(int fd:to_close)
+    closeConnection(fd);
+}
+
+
+//连接关闭
+void TcpServer::closeConnection(int fd) {
+  if(fd<0) return;
+  //检查fd是否在连接容器中
+  if(connections_.find(fd)==connections_.end()) return ;
+
+  //从监听列表移除超时的fd
+  if(epoll_ctl(epoll_fd_,EPOLL_CTL_DEL,fd,nullptr)<0)
+    LOG_ERROR(("epoll_ctl删除fd失败："+std::string(strerror(errno))).c_str());
+  if(close(fd)<0)  //关闭超时fd
+    LOG_ERROR(("关闭fd失败："+std::string(strerror(errno))).c_str());
+
+  connections_.erase(fd);
+  LOG_INFO(("【Epoll模式】连接关闭：fd="+std::to_string(fd)).c_str());
+}
+
+//获取缓冲区：池非空则取空闲缓冲区，否则新建
+std::vector<char> TcpServer::BufferPool::acquire() {
+  if(!pool_.empty()) {
+    auto buffer=std::move(pool_.back());  //移动语义，避免拷贝
+    pool_.pop_back(); //从池中移除move移动后的空缓冲区
+    return buffer;
+  }
+  return std::vector<char>(buffer_size_);  //池空则新建8KB缓冲区
+}
+
+
+//归还缓冲区：校验大小合法后入池复用
+void TcpServer::BufferPool::release(std::vector<char>&& buffer) {
+  if(buffer.size()==buffer_size_) //仅回收8KB的缓冲区，避免非法数据混入
+    pool_.push_back(std::move(buffer)); //移动语义，降低开销
+}
+
+
