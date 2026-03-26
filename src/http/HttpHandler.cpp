@@ -27,8 +27,40 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     }
   }
 
+   
   //动态响应
-  std::string response_body=build_http_response(path);  //获得HTTP响应
+  std::string response_body;  //存储响应体内容
+
+  //解析HTTP请求的方法和请求体
+  std::string method=parse_http_method(request);  //获取GET/POST
+  std::string body;           //存储POST请求体
+  if(method=="POST") body=parse_http_body(request);
+
+  //路由1：用户注册接口
+  if(method=="POST" && path=="/api/register"){
+    //从POST请求体中获取用户名和密码参数
+    std::string username=getPostParam(body,"username");
+    std::string password=getPostParam(body,"password");
+    //调用User类注册方法，执行用户注册逻辑：密码加密、数据库写入
+    response_body=User::registerUser(username,password);
+    //发送HTTP响应，状态码为200表示OK，响应体为JSON格式的注册结果
+    sendJsonResponse(client_fd,200,response_body,keep_alive);
+    return;
+  }
+
+  //路由2：用户登录接口
+  if(method=="POST" && path=="/api/login"){
+    //从POST请求体中或全部用户名和密码参数
+    std::string username=getPostParam(body,"username");
+    std::string password=getPostParam(body,"password");
+    //调用User类的登录方法，验证用户名和密码
+    response_body=User::loginUser(username,password);
+    //发送HTTP响应，状态码200表示OK
+    sendJsonResponse(client_fd,200,response_body,keep_alive);
+    return;  // 处理完毕，直接返回
+  }
+
+  response_body=build_http_response(path);
   //解析原有响应的状态码，判断是否包含404
   int status_code=(response_body.find("404 Not Found")!=std::string::npos) ? 404 : 200; 
   std::string response=build_http_response(status_code,"text/plain; charser=utf-8",response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
@@ -263,3 +295,68 @@ bool HttpHandler::isRequestComplete(const char* buffer,size_t length) {
       return true;
   return false;
 }
+
+
+//解析请求方法GET/POST
+std::string HttpHandler::parse_http_method(const std::string& request){
+  //空格分隔请求方法与请求路径
+  size_t end=request.find(" ");
+  if(end==std::string::npos) return "GET"; //格式错误默认返回GET
+  return request.substr(0,end);
+}
+
+//解析POST请求体
+std::string HttpHandler::parse_http_body(const std::string& request){
+  //查找空行分隔结束符
+  size_t pos=request.find("\r\n\r\n");
+  if(pos==std::string::npos) return ""; //没有找到空行即没有请求体
+
+  //跳过空行返回请求体
+  return request.substr(pos+4);
+}
+
+//从POST请求的表单中提取指定参数的值
+std::string HttpHandler::getPostParam(const std::string& body,const std::string& key){
+  //查找"key="在body中的位置
+  size_t start=body.find(key+"=");
+  if(start==std::string::npos) return ""; //参数不存在
+
+  //跳过“key="部分，定位到值开始的位置
+  start+=key.length()+1;
+
+  //查找下一个参数分隔符&
+  size_t end=body.find("&",start);
+  if(end==std::string::npos) end=body.length(); //没有&即是最后一个字符
+  
+  //返回参数的值
+  return body.substr(start,end-start);
+}
+
+
+//向客户端发送HTTP响应的JSON数据，支持Keep-Alive模式
+void HttpHandler::sendJsonResponse(int client_fd,int code,const std::string& json,bool keep_alive){
+  //构建完整的HTTP响应，包含响应头和响应体
+  std::string response=build_http_response(
+    code,
+    "application/json; charset=utf-8",  //设置Content-Type为JSON
+    json,
+    keep_alive
+  );
+
+  //循环发送，确保所有数据都发送完成
+  size_t sent=0;                //已发送的字节数
+  size_t total=response.size(); //需要发送的总字节数
+
+  while(sent<total){
+    //发送剩余未发送的数据
+    ssize_t ret=send(client_fd,response.c_str()+sent,total-sent,0);
+    if(ret<0){
+      LOG_ERROR("sendJsonResponse 发送失败, fd="+std::to_string(client_fd));
+      keep_alive=false;
+      return ;
+    }
+    sent+=ret;    //累加已发送的字节数
+  }
+}
+  
+  

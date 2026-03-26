@@ -10,6 +10,8 @@
 #include<sstream>  //MIME类型解析依赖
 #include"../utils/Logger.h"
 #include<algorithm> //transform依赖
+#include"../user/User.hpp"
+
 
 //HTTP相关常量
 const uint32_t BUF_SIZE = 4096; // 接收缓冲区大小
@@ -44,6 +46,14 @@ private:
   bool shouldKeepAlive(const std::string& request);
   //检查请求是否完整，用于长连接多次读取，避免粘包导致的解析错误
   bool isRequestComplete(const char* buffer,size_t length);
+  //解析请求方法：GET/POST
+  std::string parse_http_method(const std::string& request);
+  //解析POST请求体
+  std::string parse_http_body(const std::string& request);
+  //从POST表单中获取参数
+  std::string getPostParam(const std::string& body,const std::string& key);
+  //发送JSON格式响应，兼容Keep-Alive
+  void sendJsonResponse(int client_fd,int code,const std::string& josn,bool keep_alive);
 };
 
 #endif // HTTPHANDLER_H

@@ -17,7 +17,9 @@ set(SOURCE
     src/main.cpp
     src/net/TcpServer.cpp
     src/http/HttpHandler.cpp
+    src/db/DB.cpp
     src/utils/Logger.cpp
+    src/user/User.cpp
 )
 
 #头文件目录
@@ -26,10 +28,20 @@ include_directories(
     src/net/
     src/http/
     src/utils/
+    src/db/
+    src/user/
 )
 
 #编译源码文件src/socket_server.cpp，生成可执行文件http_server
 add_executable(http_server ${SOURCE})
+
+# MySQL
+target_link_libraries(http_server
+  PRIVATE
+  mysqlclient
+  pthread
+  crypto
+)
 
 #链接系统线程库(Socket通信基础依赖，避免编译警告)
 target_link_libraries(http_server PRIVATE pthread)

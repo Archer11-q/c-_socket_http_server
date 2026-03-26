@@ -7,9 +7,26 @@
 #include <iostream>
 #include"utils/Logger.h"//cout、cerr替换
 #include<string>	//字符串拼接
+#include"db/DB.hpp"
 
 int main(int argc,char *argv[]) {
   Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
+  
+  //数据库初始化
+  LOG_INFO("系统启动，开始初始化数据库连接");
+  bool db_ok=DB::instance().connect(
+    "127.0.0.1",
+    "root",
+    "123456",
+    "http_server_db"
+  ); 
+  if(!db_ok){
+    LOG_ERROR("数据库连接失败，程序退出");
+    return 1;
+  }
+  LOG_INFO("数据库初始化完成，可以处理用户注册/登录请求");
+
+
   try {
     TcpServer tcp_server;	//创建TCP服务实例，自动调用构造函数初始化
      
