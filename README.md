@@ -8,24 +8,34 @@ B1 --> B12[SELECT 多路复用模式]
 B1 --> B13[EPOLL+ET 高并发模式]
 B --> B2[连接管理：30秒空闲超时]
 B --> B3[内存池：缓冲区复用]
-B --> B4[utils/ThreadPool 线程池异步任务层]
-B4 --> C
-B4 --> G
+
+A --> D[utils 通用工具层]
+D --> D1[utils/Logger 日志模块]
+D --> D2[utils/ThreadPool 线程池]
+D --> D3[utils/LRU_Cache 缓存层]
+D --> D11[分层日志：DEBUG/INFO/WARN/ERROR]
+D1 --> D12[多终端输出：控制台/文件]
+D1 --> D13[PID标识：多进程请求区分]
+
+B --> D2
+D2 --> C
+D2 --> G
+C --> D3
+
 B --> C[http/HttpHandler HTTP协议层]
 C --> C1[请求解析：多路径/标准HTTP格式]
 C --> C2[响应构建]
 C2 --> C21[静态资源响应]
 C2 --> C22[动态响应]
-A --> D[utils/Logger 工具层]
-D --> D1[分级日志：DEBUG/INFO/WARN/ERROR]
-D --> D2[多终端输出：控制台/文件]
-D --> D3[PID标识：多进程请求区分]
+
 C --> E[public/ 静态资源层]
 E --> E1[HTML/图片等二进制文件]
+
 A --> F[工程构建层]
 F --> F1[CMakeLists.txt 编译配置]
 F --> F2[build/ 编译目录]
 F --> F3[bin/http_server 可执行文件]
+
 A --> G[DB/ 数据库层]
 G --> G1[DB 单例：MySQL C API 连接/查询/执行]
 G --> G2[User 模块：注册/登录/密码加盐哈希]
@@ -118,22 +128,12 @@ curl -X POST http://localhost:8080/api/register -d "username=test&password=12345
 
 # 5.用户登录
 curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
+
+# 6.LRU缓存测试
+./bin/http_server test lru
 ```
 
 ## 版本迭代路线（体现项目演进）
-<<<<<<< Updated upstream
-| 版本   | 核心主题                | 关键特性                                  |
-|--------|-------------------------|-------------------------------------------|
-| v1     | 纯Socket Server         | TCP字节流回显，掌握Socket核心API（socket/bind/listen等） |
-| v2     | 最小HTTP Server         | 支持GET / 路径，返回标准HTTP/1.1响应（响应行+头+体） |
-| v3     | 多路径HTTP Server       | 扩展/、/index、/about三路径，兼容浏览器/nc访问 |
-| v4     | 多模块拆分重构          | 拆分net/http/utils模块，适配CMake多文件编译 |
-| v5     | Fork多进程并发          | 多进程处理请求，日志添加PID标识，支持静态文件传输 |
-| v6     | Select IO多路复用       | 单进程监听多FD，突破1024连接限制，降低进程开销 |
-| v7     | Epoll IO多路复用        | Linux专属高并发，ET模式+非阻塞FD，O(1)事件响应 |
-| v8     | Keep-Alive与性能优化    | 30秒空闲连接超时+内存池缓冲区复用，RSS稳定≈3.7MB |
-| v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密
-=======
 | 版本   | 核心主题                | 关键特性                                                                       |
 |--------|-------------------------|----------------------------------------------------------------------------|
 | v1     | 纯Socket Server         | TCP字节流回显，掌握Socket核心API（socket/bind/listen等）                                |
@@ -145,8 +145,8 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 | v7     | Epoll IO多路复用        | Linux专属高并发，ET模式+非阻塞FD，O(1)事件响应                                             |
 | v8     | Keep-Alive与性能优化    | 30秒空闲连接超时+内存池缓冲区复用，RSS稳定≈3.7MB                                             |
 | v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密                                       |
->>>>>>> Stashed changes
 | v10    | 线程池异步解耦优化      | 引入线程池实现Epoll+ThreadPool异步Reactor架构，IO线程与工作线程分离，异步处理HTTP业务与数据库操作，消除ET模式阻塞风险 |
+| v11    | LRU缓存集成与测试模块   | 集成LRU缓存优化用户登录性能，减少数据库查询；新增测试模块，支持命令行测试（如./http_server test lru） |
 
 ## 核心功能
 1. **HTTP协议支持**：兼容GET请求，静态资源（HTML/图片）二进制传输，长连接（Keep-Alive）
@@ -155,6 +155,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 4. **工程规范**：模块化拆分、编译产物隔离、Git标签追溯全版本，符合生产级开发标准
 5. **用户系统**：集成MySQL数据库，提供/api/register、/api/login接口，支持用户注册、登录和数据持久化
 6. **异步任务处理**：集成线程池实现任务异步执行，IO线程仅负责事件监听与读写分发，核心业务逻辑交由工作线程处理，避免阻塞
+7. **LRU缓存优化**：集成LRU缓存机制，缓存用户认证数据，减少数据库查询，提升登录性能
 
 ---
 > 项目基于C++11开发，聚焦「从基础到高阶」的HTTP服务器实现，适合学习Socket编程、IO多路复用（Select/Epoll）、服务器性能优化的开发者参考。
