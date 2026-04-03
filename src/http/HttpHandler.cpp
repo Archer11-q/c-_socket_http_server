@@ -8,7 +8,6 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   //检查请求完整性
   if(!isRequestComplete(buffer,length)) {
     LOG_WARN("请求不完整，关闭连接，fd="+std::to_string(client_fd));
-    return;
   }
 
   //解析请求
@@ -23,7 +22,6 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   if(path.find('.')!=std::string::npos) {
     if(serverStaticFile(client_fd,path,keep_alive)) {
       LOG_DEBUG("Static file served: " + path);
-      return; //静态文件服务成功，避免重复发送动态响应
     }
   }
 
@@ -45,7 +43,6 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     response_body=User::registerUser(username,password);
     //发送HTTP响应，状态码为200表示OK，响应体为JSON格式的注册结果
     sendJsonResponse(client_fd,200,response_body,keep_alive);
-    return;
   }
 
   //路由2：用户登录接口
@@ -57,13 +54,12 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     response_body=User::loginUser(username,password);
     //发送HTTP响应，状态码200表示OK
     sendJsonResponse(client_fd,200,response_body,keep_alive);
-    return;  // 处理完毕，直接返回
   }
 
   response_body=build_http_response(path);
   //解析原有响应的状态码，判断是否包含404
   int status_code=(response_body.find("404 Not Found")!=std::string::npos) ? 404 : 200; 
-  std::string response=build_http_response(status_code,"text/plain; charser=utf-8",response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
+  std::string response=build_http_response(status_code,"text/plain; charset=utf-8",response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
 
   //循环发送响应，避免截断
   size_t sent=0;                 //记录已经成功发送的字节数

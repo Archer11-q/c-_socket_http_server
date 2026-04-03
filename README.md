@@ -67,8 +67,8 @@ C --> G
 - 方案：引入动态线程池，将HTTP解析、业务处理、数据库操作等任务异步投递，IO线程与工作线程解耦
 - 效果：IO线程无阻塞高效执行，服务器并发吞吐量显著提升，高并发场景下稳定性与响应速度大幅优化
 
-## 项目亮点 
-1. **迭代清晰**：从单文件Socket逐步迭代至多模块**Epoll高并发**，Git标签（v1-v8）追溯全版本 
+## 项目亮点
+1. **迭代清晰**：从单文件Socket逐步迭代至多模块**Epoll高并发**，Git标签（v1-v8）追溯全版本
 2. **性能卓越**：**Epoll ET模式**+**内存池复用**+30s空闲超时，1000请求压测后**RSS仅3.7MB左右**，无内存泄漏/飙升
 3. **多模式兼容**：支持**Fork多进程/Select/Epoll**三种并发模式，命令行一键切换，适配不同场景需求
 4. **工程规范**：**模块化拆分（net/http/utils）**、编译产物隔离、**分级日志+PID标识**，符合生产级开发标准
@@ -121,6 +121,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 ```
 
 ## 版本迭代路线（体现项目演进）
+<<<<<<< Updated upstream
 | 版本   | 核心主题                | 关键特性                                  |
 |--------|-------------------------|-------------------------------------------|
 | v1     | 纯Socket Server         | TCP字节流回显，掌握Socket核心API（socket/bind/listen等） |
@@ -132,6 +133,19 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 | v7     | Epoll IO多路复用        | Linux专属高并发，ET模式+非阻塞FD，O(1)事件响应 |
 | v8     | Keep-Alive与性能优化    | 30秒空闲连接超时+内存池缓冲区复用，RSS稳定≈3.7MB |
 | v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密
+=======
+| 版本   | 核心主题                | 关键特性                                                                       |
+|--------|-------------------------|----------------------------------------------------------------------------|
+| v1     | 纯Socket Server         | TCP字节流回显，掌握Socket核心API（socket/bind/listen等）                                |
+| v2     | 最小HTTP Server         | 支持GET / 路径，返回标准HTTP/1.1响应（响应行+头+体）                                         |
+| v3     | 多路径HTTP Server       | 扩展/、/index、/about三路径，兼容浏览器/nc访问                                            |
+| v4     | 多模块拆分重构          | 拆分net/http/utils模块，适配CMake多文件编译                                            |
+| v5     | Fork多进程并发          | 多进程处理请求，日志添加PID标识，支持静态文件传输                                                 |
+| v6     | Select IO多路复用       | 单进程监听多FD，突破1024连接限制，降低进程开销                                                 |
+| v7     | Epoll IO多路复用        | Linux专属高并发，ET模式+非阻塞FD，O(1)事件响应                                             |
+| v8     | Keep-Alive与性能优化    | 30秒空闲连接超时+内存池缓冲区复用，RSS稳定≈3.7MB                                             |
+| v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密                                       |
+>>>>>>> Stashed changes
 | v10    | 线程池异步解耦优化      | 引入线程池实现Epoll+ThreadPool异步Reactor架构，IO线程与工作线程分离，异步处理HTTP业务与数据库操作，消除ET模式阻塞风险 |
 
 ## 核心功能

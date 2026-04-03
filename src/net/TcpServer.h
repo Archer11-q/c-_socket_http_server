@@ -18,6 +18,7 @@
 #include<errno.h>	//errno依赖
 #include<ctime>   //超时管理的时间依赖
 #include<unordered_map> //哈希表依赖
+#include"../utils/ThreadPool.h" //线程池依赖
 
 
 //前置声明: 避免头文件重复包含，仅声明类不引入头文件
@@ -30,7 +31,7 @@ const int BACKLOG = 5; // listen监听队列长度
 class TcpServer {
 public:
   //构造函数：初始化TCP服务（socket、bind、listen）
-  TcpServer();
+  TcpServer(ThreadPool* thread_pool);
   //启动服务主循环，实现fork多进程并发
   void start();
   //析构函数：关闭socket，释放资源
@@ -65,6 +66,7 @@ private:
   static const int MAX_IDLE_TIME =30; //30s空闲超时
   static const int EPOLL_CHECK_INTERVAL=5000; //5s检查间隔
   BufferPool buffer_pool_;  //内存池实例
+  ThreadPool* thread_pool_; //线程池指针
 
   //声明select模式的核心方法
   void startWithSelect();

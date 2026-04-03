@@ -9,6 +9,9 @@
 #include<mysql/mysql.h>     //mysql依赖
 #include<cstdio>
 
+// 初始化静态LRU缓存，容量100
+LRU_Cache User::user_cache(100);
+
 
 //生成随机盐：用于密码加密，防止相同密码生成相同哈希
 std::string User::generateSalt(int len) {
@@ -118,40 +121,61 @@ std::string User::loginUser(const std::string& username,const std::string& passw
     return "{\"code\":-1,\"msg\":\"参数不能为空\"}";
   }
 
-  //构建SQL查询语句，获取该用户存储的密码哈希值和盐值
-  char sql[256];
-  sprintf(sql,
-    "SELECT password,salt FROM users WHERE username='%s'",
-     username.c_str()
-  );
-  MYSQL_RES* res=DB::instance().query(sql);
-
-  //检查用户是否存在：查询结果为空说明不存在
-  if(mysql_num_rows(res)==0){
-    mysql_free_result(res);   //释放结果集
-    std::string msg="[User] 登录失败：用户不存在 -> "+username;
-    LOG_WARN(msg);
-    return "{\"code\":-1,\"msg\":\"用户不存在\"}";
+  // 先检查LRU缓存
+  std::string cached_data = user_cache.get(username);
+  std::string db_pwd, salt;
+  if (!cached_data.empty()) {
+    // 缓存命中，解析password:salt
+    size_t pos = cached_data.find(':');
+    if (pos != std::string::npos) {
+      db_pwd = cached_data.substr(0, pos);
+      salt = cached_data.substr(pos + 1);
+    } else {
+      // 缓存数据格式错误，从DB查询
+      cached_data = "";
+    }
   }
 
-  //获取查询结果的第一行数据
-  MYSQL_ROW row=mysql_fetch_row(res);
-  std::string db_pwd=row[0];       //数据库中存储的加密密码
-  std::string salt=row[1];         //该用户对应盐值
-  mysql_free_result(res);          //释放结果集
+  if (cached_data.empty()) {
+    // 缓存未命中，从数据库查询
+    char sql[256];
+    sprintf(sql,
+      "SELECT password,salt FROM users WHERE username='%s'",
+       username.c_str()
+    );
+    MYSQL_RES* res = DB::instance().query(sql);
 
-  //使用相同的盐值对用户输入的密码进行加密，得到哈希值
-  std::string input_pwd=encryptPassword(password,salt);
+    // 检查用户是否存在：查询结果为空说明不存在
+    if (mysql_num_rows(res) == 0) {
+      mysql_free_result(res);   // 释放结果集
+      std::string msg = "[User] 登录失败：用户不存在 -> " + username;
+      LOG_WARN(msg);
+      return "{\"code\":-1,\"msg\":\"用户不存在\"}";
+    }
 
-  //比对加密后的密码与数据库中存储的密码是否一致
-  if(input_pwd==db_pwd){
-    //密码验证通过，登录成功
-    std::string msg="[User] 登录成功 -> "+username;
+    // 获取查询结果的第一行数据
+    MYSQL_ROW row = mysql_fetch_row(res);
+    db_pwd = row[0];       // 数据库中存储的加密密码
+    salt = row[1];         // 该用户对应盐值
+    mysql_free_result(res);          // 释放结果集
+
+    // 缓存数据
+    std::string cache_value = db_pwd + ":" + salt;
+    user_cache.put(username, cache_value);
+  }
+
+  // 使用相同的盐值对用户输入的密码进行加密，得到哈希值
+  std::string input_pwd = encryptPassword(password, salt);
+
+  // 比对加密后的密码与数据库中存储的密码是否一致
+  if (input_pwd == db_pwd) {
+    // 密码验证通过，登录成功
+    std::string msg = "[User] 登录成功 -> " + username;
     LOG_INFO(msg);
     return "{\"code\":0,\"msg\":\"登录成功\"}";
-  } else{
-      //密码验证失败，登录失败
-       std::string msg="[User] 登录失败：密码错误 -> "+username;
+  } else {
+      // 密码验证失败，登录失败
+       std::string msg = "[User] 登录失败：密码错误 -> " + username;
        LOG_WARN(msg);
        return "{\"code\":-1,\"msg\":\"密码错误\"}";
   }

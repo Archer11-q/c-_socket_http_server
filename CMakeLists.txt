@@ -20,6 +20,11 @@ set(SOURCE
     src/db/DB.cpp
     src/utils/Logger.cpp
     src/user/User.cpp
+    src/utils/ThreadPool.cpp
+    src/utils/ThreadPool.h
+    src/utils/LRU_Cache.cpp
+    src/utils/LRU_Cache.h
+    src/test/Test.cpp
 )
 
 #头文件目录
@@ -30,6 +35,7 @@ include_directories(
     src/utils/
     src/db/
     src/user/
+    src/test/
 )
 
 #编译源码文件src/socket_server.cpp，生成可执行文件http_server

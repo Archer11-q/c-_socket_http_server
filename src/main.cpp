@@ -8,8 +8,15 @@
 #include"utils/Logger.h"//cout、cerr替换
 #include<string>	//字符串拼接
 #include"db/DB.hpp"
+#include "test/Test.h"
 
 int main(int argc,char *argv[]) {
+  // 检查是否为测试模式
+  if (argc >= 2 && std::string(argv[1]) == "test") {
+    Test::run(argc, argv);
+    return 0;
+  }
+
   Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
   
   //数据库初始化
@@ -28,7 +35,8 @@ int main(int argc,char *argv[]) {
 
 
   try {
-    TcpServer tcp_server;	//创建TCP服务实例，自动调用构造函数初始化
+    ThreadPool pool(8); //创建线程池实例，指定线程数量
+    TcpServer tcp_server(&pool);	//创建TCP服务实例，自动调用构造函数初始化
      
     //用命令行判断是否传入两个参数，若传入的参数中包含select，则打开select模式
     if(argc >= 2 && std::string(argv[1])=="select") {

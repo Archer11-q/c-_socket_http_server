@@ -8,7 +8,8 @@ void sigchld_handler(int sig) {
 }
 
 //构造函数：实现原tcp_server_init的逻辑，初始化并赋值server_fd
-TcpServer::TcpServer() : server_fd(-1), epoll_fd_(-1), ready_events_(nullptr) {
+TcpServer::TcpServer(ThreadPool* thread_pool) : server_fd(-1), epoll_fd_(-1),
+                        ready_events_(nullptr),thread_pool_(thread_pool) {
     // 1. 创建Socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
@@ -132,54 +133,57 @@ void TcpServer::startWithSelect() {
 
     //将所有已连接的客户端fd加入监听集合
     for(int fd:client_fds) {
-	FD_SET(fd,&read_fds);
-	if(fd>max_fd)
-	  max_fd=fd;	//更新监听上限
+	    FD_SET(fd,&read_fds);
+	    if(fd>max_fd)
+	      max_fd=fd;	//更新监听上限
     }
 
     //2.阻塞等待事件，仅监听读事件,无超时
     int ready=select(max_fd+1,&read_fds,NULL,NULL,NULL);
     if(ready<0) {
-	LOG_SYS_ERROR("select failed");
-	continue;
+	    LOG_SYS_ERROR("select failed");
+	    continue;
     }
 
     //3.处理新连接，监听fd就绪
     if(FD_ISSET(server_fd,&read_fds)) {
-	int client_fd=accept(server_fd,nullptr,nullptr);//简化客户端地址结构初始化
-	if(client_fd<0) {
-	  LOG_SYS_ERROR("accept failed in select mode");
-	  continue;
-	}
-	//新连接加入客户端列表
-	client_fds.push_back(client_fd);
-	std::string new_conn_msg = "新连接：fd=" + std::to_string(client_fd) + 
+	    int client_fd=accept(server_fd,nullptr,nullptr);//简化客户端地址结构初始化
+	    if(client_fd<0) {
+	      LOG_SYS_ERROR("accept failed in select mode");
+	      continue;
+	    }
+	    //新连接加入客户端列表
+	    client_fds.push_back(client_fd);
+	    std::string new_conn_msg = "新连接：fd=" + std::to_string(client_fd) +
                            "(当前总连接数: " + std::to_string(client_fds.size()) + ")";
-	LOG_INFO(new_conn_msg.c_str());
+	    LOG_INFO(new_conn_msg.c_str());
     }
 
     //4.处理客户端连接，客户端fd就绪
     for(size_t i=0;i<client_fds.size();) {    
-	int fd=client_fds[i];
-	//判断该客户端fd是否有可读事件
-	if(FD_ISSET(fd,&read_fds)) {
-	  char buffer[2048]={0};
-	  ssize_t n=recv(fd,buffer,sizeof(buffer)-1,0);
+	    int fd=client_fds[i];
+	    //判断该客户端fd是否有可读事件
+	    if(FD_ISSET(fd,&read_fds)) {
+	      char buffer[2048]={0};
+	      ssize_t n=recv(fd,buffer,sizeof(buffer)-1,0);
 
-	  if(n>0) {
-	    //调用适配后的HttpHandler接口，接收已读取的buffer
-	    HttpHandler handler;
-	    handler.handleRequest(fd,buffer,n);
-	  } else {	//客户端端口/读取失败：关闭fd并从列表中删除
-		close(fd);
-		client_fds.erase(client_fds.begin()+i);
-		std::string close_conn_msg = "连接关闭：fd=" + std::to_string(fd) +"(剩余连接数: " + std::to_string(client_fds.size()) + ")";
-		LOG_INFO(close_conn_msg.c_str());
-		continue;
-	  }
-	}
-	  //仅当未删除元素时，使用递增让指针指向下一个就绪fd
-	  i++;
+	      if(n>0) {
+	        //线程池执行
+	        thread_pool_->enqueue([this,fd,buffer=std::string(buffer,n)](){
+	          //调用适配后的HttpHandler接口，接收已读取的buffer
+            HttpHandler handler;
+            handler.handleRequest(fd,buffer.data(),buffer.size());
+	        });
+	      } else {	//客户端端口/读取失败：关闭fd并从列表中删除
+		        close(fd);
+		        client_fds.erase(client_fds.begin()+i);
+		        std::string close_conn_msg = "连接关闭：fd=" + std::to_string(fd) +"(剩余连接数: " + std::to_string(client_fds.size()) + ")";
+		        LOG_INFO(close_conn_msg.c_str());
+		        continue;
+	      }
+	    }
+	    //仅当未删除元素时，使用递增让指针指向下一个就绪fd
+	    i++;
     }
   }
 }
@@ -253,7 +257,7 @@ void TcpServer::startWithEpoll() {
           bool is_conn_close=false; //标记连接是否需要关闭
 
           //7.1循环读取数据：一次性读完所有可用数据
-          while((recv_len=recv(fd,buffer.data(),buffer.size()-1,0))>0)          {
+          while((recv_len=recv(fd,buffer.data(),buffer.size()-1,0))>0){
             req_buffer.append(buffer.data(),recv_len);//将读取的数据追加到缓存
             memset(buffer.data(),0,buffer.size());  //清空临时缓冲区
           }
@@ -271,41 +275,47 @@ void TcpServer::startWithEpoll() {
           }
 
           //7.3解析并处理缓存中的HTTP请求：循环解析+解决粘包
-          if(!is_conn_close && !req_buffer.empty()) {
+          if(!is_conn_close && !req_buffer.empty())
+          {
             size_t offset=0;  //移动指针，跳过已读数据包，指向下一个数据包起始位置
-            HttpHandler handler;
 
-            while(offset<req_buffer.size()) { //循环检查是否读取完
+            while(offset<req_buffer.size())
+            {
+              //循环检查是否读取完
               //调用HttpHandler接口，判断当前偏移后的数据是否是完整请求
               size_t remain_len=req_buffer.size()-offset;
 
+              //线程池异步处理HTTP
+              //thread_pool_->enqueue([this,fd,data=std::string(req_buffer.c_str()+offset,remain_len)]()
+              //{
               //处理单个完整HTTP请求，获取长连接状态
-              bool keep_alive=false;
+              HttpHandler handler;
+              bool keep_alive=false; //默认短连接
               handler.handleRequest(fd,req_buffer.c_str()+offset,remain_len,keep_alive);
+              //});
 
               //找到当前请求的结束位置，更新偏移量
               size_t req_end=req_buffer.find("\r\n\r\n",offset)+4;
               offset=req_end;
 
+
+
               //短连接：处理完当前请求后，标记关闭，不再处理后续请求
-              if(!keep_alive) {
+              if (!keep_alive) {
                 is_conn_close=true;
                 break;
               }
             } //循环检查关闭
-
             //长连接/半包
             if(!is_conn_close)
               LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 长连接复用/等待半包数据").c_str());
           }   //退出处理HTTP请求判断
-          
+
           //统一归还缓冲区
           buffer_pool_.release(std::move(buffer));
-
           //最终判断：是否关闭连接
-          if(is_conn_close)  {
+          if(is_conn_close)
             closeConnection(fd); //关闭fd，自动移除connctions_
-          }
         }     //退出读取事件判断
       }       //退出遍历所有就绪事件循环
     }         //退出epoll主循环
