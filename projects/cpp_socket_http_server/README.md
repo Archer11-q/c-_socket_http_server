@@ -118,6 +118,9 @@ curl -X POST http://localhost:8080/api/register -d "username=test&password=12345
 
 # 5.用户登录
 curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
+
+# 6.LRU缓存测试
+./bin/http_server test lru
 ```
 
 ## 版本迭代路线（体现项目演进）
@@ -133,6 +136,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 | v8     | Keep-Alive与性能优化    | 30秒空闲连接超时+内存池缓冲区复用，RSS稳定≈3.7MB                                             |
 | v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密                                       |
 | v10    | 线程池异步解耦优化      | 引入线程池实现Epoll+ThreadPool异步Reactor架构，IO线程与工作线程分离，异步处理HTTP业务与数据库操作，消除ET模式阻塞风险 |
+| v11    | LRU缓存集成与测试模块   | 集成LRU缓存优化用户登录性能，减少数据库查询；新增测试模块，支持命令行测试（如./http_server test lru） |
 
 ## 核心功能
 1. **HTTP协议支持**：兼容GET请求，静态资源（HTML/图片）二进制传输，长连接（Keep-Alive）
@@ -141,6 +145,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 4. **工程规范**：模块化拆分、编译产物隔离、Git标签追溯全版本，符合生产级开发标准
 5. **用户系统**：集成MySQL数据库，提供/api/register、/api/login接口，支持用户注册、登录和数据持久化
 6. **异步任务处理**：集成线程池实现任务异步执行，IO线程仅负责事件监听与读写分发，核心业务逻辑交由工作线程处理，避免阻塞
+7. **LRU缓存优化**：集成LRU缓存机制，缓存用户认证数据，减少数据库查询，提升登录性能
 
 ---
 > 项目基于C++11开发，聚焦「从基础到高阶」的HTTP服务器实现，适合学习Socket编程、IO多路复用（Select/Epoll）、服务器性能优化的开发者参考。
