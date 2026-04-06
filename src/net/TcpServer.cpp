@@ -286,25 +286,27 @@ void TcpServer::startWithEpoll() {
               size_t remain_len=req_buffer.size()-offset;
 
               //线程池异步处理HTTP
-              //thread_pool_->enqueue([this,fd,data=std::string(req_buffer.c_str()+offset,remain_len)]()
-              //{
-              //处理单个完整HTTP请求，获取长连接状态
-              HttpHandler handler;
-              bool keep_alive=false; //默认短连接
-              handler.handleRequest(fd,req_buffer.c_str()+offset,remain_len,keep_alive);
-              //});
+              thread_pool_->enqueue([this,fd,data=std::string(req_buffer.c_str()+offset,remain_len)]()
+              {
+                //处理单个完整HTTP请求，获取长连接状态
+                HttpHandler handler;
+                bool keep_alive=false; //默认短连接
+                usleep(1000); //模拟处理请求的耗时，实际应用中可去掉
+                handler.handleRequest(fd,data.c_str(),data.size(),keep_alive);
+
+                if (!keep_alive)
+                  closeConnection(fd); //短连接：处理完当前请求后关闭连接
+              });
 
               //找到当前请求的结束位置，更新偏移量
               size_t req_end=req_buffer.find("\r\n\r\n",offset)+4;
               offset=req_end;
 
-
-
               //短连接：处理完当前请求后，标记关闭，不再处理后续请求
-              if (!keep_alive) {
-                is_conn_close=true;
+              //if (!keep_alive) {
+              //  is_conn_close=true;
                 break;
-              }
+              //}
             } //循环检查关闭
             //长连接/半包
             if(!is_conn_close)
@@ -314,8 +316,8 @@ void TcpServer::startWithEpoll() {
           //统一归还缓冲区
           buffer_pool_.release(std::move(buffer));
           //最终判断：是否关闭连接
-          if(is_conn_close)
-            closeConnection(fd); //关闭fd，自动移除connctions_
+          /*if(is_conn_close)
+            closeConnection(fd); //关闭fd，自动移除connctions_*/
         }     //退出读取事件判断
       }       //退出遍历所有就绪事件循环
     }         //退出epoll主循环
