@@ -2,38 +2,39 @@
 
 //【Kepp-Alive模式】处理客户端请求
 void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,bool& keep_alive) {
-  //初始化连接状态
+  //1.初始化连接状态
   keep_alive=false;
 
-  //检查请求完整性
+  //2.检查请求完整性
   if(!isRequestComplete(buffer,length)) {
-    LOG_WARN("请求不完整，关闭连接，fd="+std::to_string(client_fd));
+    LOG_WARN("请求不完整，等待后续数据，fd="+std::to_string(client_fd));
+    keep_alive=true;  //请求不完整但保持连接，等待后续数据补全
+    return; //请求不完整，直接返回，保持连接状态为false，调用者根据该状态决定是否关闭连接
   }
 
-  //解析请求
+  //3.解析请求基础信息
   std::string request(buffer,length); //获取请求，将buffer转化为字符串
   std::string path=parse_http_path(request);  //提取路径
+  std::string method=parse_http_method(request);  //解析HTTP请求的方法和请求体，获取GET/POST
+  keep_alive=shouldKeepAlive(request);  //判断是否保持连接
 
-  //判断是否保持连接
-  keep_alive=shouldKeepAlive(request);
 
   //处理静态文件/动态响应
-  //判断是否为静态文件，若是则进行静态文件处理
+  //4.判断是否为静态文件，若是则进行静态文件处理
   if(path.find('.')!=std::string::npos) {
     if(serverStaticFile(client_fd,path,keep_alive)) {
       LOG_DEBUG("Static file served: " + path);
+      return; //静态文件处理成功，直接返回
     }
   }
 
-   
-  //动态响应
-  std::string response_body;  //存储响应体内容
 
-  //解析HTTP请求的方法和请求体
-  std::string method=parse_http_method(request);  //获取GET/POST
+  //5.解析POST请求体
+  std::string response_body;  //存储响应体内容
   std::string body;           //存储POST请求体
   if(method=="POST") body=parse_http_body(request);
 
+  //6.处理API路由：匹配到路由发送响应直接return
   //路由1：用户注册接口
   if(method=="POST" && path=="/api/register"){
     //从POST请求体中获取用户名和密码参数
@@ -43,6 +44,7 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     response_body=User::registerUser(username,password);
     //发送HTTP响应，状态码为200表示OK，响应体为JSON格式的注册结果
     sendJsonResponse(client_fd,200,response_body,keep_alive);
+    return; //注册接口处理完成，直接返回
   }
 
   //路由2：用户登录接口
@@ -54,14 +56,18 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     response_body=User::loginUser(username,password);
     //发送HTTP响应，状态码200表示OK
     sendJsonResponse(client_fd,200,response_body,keep_alive);
+    return; //登录接口处理完成，直接返回
   }
 
+  //7.处理默认动态响应/404
   response_body=build_http_response(path);
   //解析原有响应的状态码，判断是否包含404
   int status_code=(response_body.find("404 Not Found")!=std::string::npos) ? 404 : 200; 
-  std::string response=build_http_response(status_code,"text/plain; charset=utf-8",response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
+  std::string response=build_http_response(status_code,"text/plain; charset=utf-8",
+    response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
 
-  //循环发送响应，避免截断
+
+  //8.循环发送响应，避免截断
   size_t sent=0;                 //记录已经成功发送的字节数
   size_t total=response.length(); //记录总共需要发送的字节数
   while(sent<total) { //未发送完继续发送

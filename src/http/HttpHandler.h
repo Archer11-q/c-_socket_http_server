@@ -11,6 +11,7 @@
 #include"../utils/Logger.h"
 #include<algorithm> //transform依赖
 #include"../user/User.hpp"
+#include<gtest/gtest.h>
 
 
 //HTTP相关常量
@@ -54,6 +55,11 @@ private:
   std::string getPostParam(const std::string& body,const std::string& key);
   //发送JSON格式响应，兼容Keep-Alive
   void sendJsonResponse(int client_fd,int code,const std::string& josn,bool keep_alive);
+
+  FRIEND_TEST(HttpHandlerTest,ParseHttpPath);
+  FRIEND_TEST(HttpHandlerTest,ParseHttpMethod);
+  FRIEND_TEST(HttpHandlerTest,IsRequestComplete);
+  FRIEND_TEST(HttpHandlerTest,ShouldKeepAlive);
 };
 
 #endif // HTTPHANDLER_H

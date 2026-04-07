@@ -8,6 +8,9 @@ B1 --> B12[SELECT 多路复用模式]
 B1 --> B13[EPOLL+ET 高并发模式]
 B --> B2[连接管理：30秒空闲超时]
 B --> B3[内存池：缓冲区复用]
+B --> B4[测试层：tests/单元测试]
+B4 --> B41[tests/test_http_handler.cpp - HTTP协议解析测试]
+B4 --> B42[tests/test_buffer_pool.cpp - 缓冲池复用测试]
 
 A --> D[utils 通用工具层]
 D --> D1[utils/Logger 日志模块]
@@ -77,6 +80,11 @@ C --> G
 - 方案：引入动态线程池，将HTTP解析、业务处理、数据库操作等任务异步投递，IO线程与工作线程解耦
 - 效果：IO线程无阻塞高效执行，服务器并发吞吐量显著提升，高并发场景下稳定性与响应速度大幅优化
 
+### 8.单元测试体系构建
+- 挑战：核心模块迭代重构后易引入回归缺陷，缺乏自动化验证机制
+- 方案：基于GTest构建tests目录，覆盖HttpHandler接口边界与BufferPool核心逻辑
+- 效果：自动化验证接口正确性，支撑后续模块重构不破坏底层逻辑
+
 ## 项目亮点
 1. **迭代清晰**：从单文件Socket逐步迭代至多模块**Epoll高并发**，Git标签（v1-v8）追溯全版本
 2. **性能卓越**：**Epoll ET模式**+**内存池复用**+30s空闲超时，1000请求压测后**RSS仅3.7MB左右**，无内存泄漏/飙升
@@ -84,6 +92,7 @@ C --> G
 4. **工程规范**：**模块化拆分（net/http/utils）**、编译产物隔离、**分级日志+PID标识**，符合生产级开发标准
 5. **持久化存储**：集成MySQL数据库，实现用户注册、登录接口，密码加盐加密，支持数据持久化
 6. **异步解耦**：基于Epoll ET+线程池实现**Reactor异步架构**，IO线程与工作线程分离，彻底解决同步阻塞瓶颈
+7. **测试全覆盖**：建立tests/单元测试目录，完成HTTP协议解析与缓冲池核心逻辑的自动化用例覆盖，保障代码迭代稳定性
 
 ## 性能对比表格
 | 并发模式       | 最大连接数 | IO模型       | 内存占用（1000请求） | 适用场景               | 对应版本 |
@@ -140,6 +149,15 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 
 # 6.LRU缓存测试
 ./bin/http_server test lru
+
+# 7.运行所有单元测试
+./bin/test_all
+
+# 8.单独运行HttpHandler测试
+./bin/test_all --gtest_filter=HttpHandlerTest.*
+
+# 9.单独运行BufferPool测试
+./bin/test_all --gtest_filter=BufferPoolTest.*
 ```
 
 ## 版本迭代路线（体现项目演进）
@@ -156,6 +174,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 | v9     | MySQL数据库集成         | 集成MySQL，实现用户注册/登录API，密码SHA256+salt加密                                       |
 | v10    | 线程池异步解耦优化      | 引入线程池实现Epoll+ThreadPool异步Reactor架构，IO线程与工作线程分离，异步处理HTTP业务与数据库操作，消除ET模式阻塞风险 |
 | v11    | LRU缓存集成与测试模块   | 集成LRU缓存优化用户登录性能，减少数据库查询；新增测试模块，支持命令行测试（如./http_server test lru） |
+ | v12   | 单元测试体系构建        | 搭建GTetst测试框架，完成HttpHandler与BufferPool全接口单元测试，建立tests/测试目录，实现自动化回归验证|
 
 ## 核心功能
 1. **HTTP协议支持**：兼容GET请求，静态资源（HTML/图片）二进制传输，长连接（Keep-Alive）
@@ -165,6 +184,7 @@ curl -X POST http://localhost:8080/api/login -d "username=test&password=123456"
 5. **用户系统**：集成MySQL数据库，提供/api/register、/api/login接口，支持用户注册、登录和数据持久化
 6. **异步任务处理**：集成线程池实现任务异步执行，IO线程仅负责事件监听与读写分发，核心业务逻辑交由工作线程处理，避免阻塞
 7. **LRU缓存优化**：集成LRU缓存机制，缓存用户认证数据，减少数据库查询，提升登录性能
+8. **自动化测试支撑**：集成单元测试框架，覆盖HTTP协议解析边界场景与缓冲池复用逻辑，提供自动化验证能力，保障项目长期维护性
 
 ---
 > 项目基于C++11开发，聚焦「从基础到高阶」的HTTP服务器实现，适合学习Socket编程、IO多路复用（Select/Epoll）、服务器性能优化的开发者参考。

@@ -19,6 +19,7 @@
 #include<ctime>   //超时管理的时间依赖
 #include<unordered_map> //哈希表依赖
 #include"../utils/ThreadPool.h" //线程池依赖
+#include<gtest/gtest.h>
 
 
 //前置声明: 避免头文件重复包含，仅声明类不引入头文件
@@ -42,6 +43,10 @@ public:
   void setMode(Mode mode) {mode_=mode;}
 
 private:
+  friend class BufferPoolTest_AcquireRelease_Test; //测试BufferPool的AcquireRelease功能
+  friend class BufferPoolTest_ReuseBuffer_Test; //测试BufferPool的ReuseBuffer功能
+  friend class BufferPoolTest_MultipleAcquireRelease_Test; //测试BufferPool的MultipleAcquire
+
   //连接信息结构体：存储fd最后活跃时间
   struct ConnectionInfo {
     time_t last_active; //跟踪每个连接空闲时长，判断是否超时

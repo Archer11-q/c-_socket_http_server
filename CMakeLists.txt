@@ -55,3 +55,42 @@ target_link_libraries(http_server PRIVATE pthread)
 # 编译提示
 message(STATUS "多模块编译完成，可执行文件：build/bin/http_server")
 message(STATUS "运行命令：./build/bin/http_server")
+
+#Google Test 支持
+find_package(GTest REQUIRED)
+
+#测试可执行文件
+add_executable(test_all
+        tests/test_http_handler.cpp
+        tests/test_buffer_pool.cpp
+        src/http/HttpHandler.cpp
+        src/net/TcpServer.cpp
+        src/utils/Logger.cpp
+        src/utils/ThreadPool.cpp
+        src/utils/LRU_Cache.cpp
+        src/db/DB.cpp
+        src/user/User.cpp
+        src/test/Test.cpp
+)
+
+#测试头文件目录
+target_include_directories(test_all PRIVATE
+    src/
+    src/net/
+    src/http/
+    src/utils/
+    src/db/
+    src/user
+    src/test/
+)
+
+#链接Google Test和其他库
+target_link_libraries(test_all
+    PRIVATE
+    GTest::gtest_main
+    mysqlclient
+    pthread
+    crypto
+)
+
+add_test(NAME test_all COMMAND test_all)
