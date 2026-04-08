@@ -2,6 +2,8 @@
 
 // 更新查询到的节点访问顺序：先移除节点再插入头部
 void LRU_Cache::moveToHead(CacheNode* node) {
+    if (node==head) return; // 如果节点已经在头部，无需移动
+
     // 如果移走尾节点，更新尾指针
     if (node == tail) tail = node->prev;    // 如果当前节点是尾节点，更新尾指针为当前节点的前驱
 

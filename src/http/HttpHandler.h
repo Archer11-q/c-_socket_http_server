@@ -12,6 +12,9 @@
 #include<algorithm> //transform依赖
 #include"../user/User.hpp"
 #include<gtest/gtest.h>
+#include<atomic>  //用于线程安全的原子操作
+#include<ctime>   //用于时间统计
+#include<sys/resource.h>
 
 
 //HTTP相关常量
@@ -39,8 +42,18 @@ public:
   bool serverStaticFile(int client_fd,const std::string& path,bool keep_alive);
   //获取文件路径后缀名
   std::string getMimeType(const std::string& file_path);
+  //初始化服务器启动时间
+  static void initServerStartTime();
 
 private:
+  //服务器状态统计变量
+  static std::atomic<long long> total_requests; //累计请求数
+  static std::atomic<int> active_connections;   //当前活跃连接数
+  static time_t start_time;                     //服务器启动时间
+
+  //构建 /status 接口的JSON响应
+  static std::string buildStatusJson();
+
   //静态文件处理公共逻辑
   bool handleStaticFileCore(int client_fd,const std::string& safe_path,bool keep_alive);
   //解析请求中的Connection头部，返回是否需要保持连接

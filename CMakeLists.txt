@@ -24,7 +24,6 @@ set(SOURCE
     src/utils/ThreadPool.h
     src/utils/LRU_Cache.cpp
     src/utils/LRU_Cache.h
-    src/test/Test.cpp
 )
 
 #头文件目录
@@ -35,7 +34,6 @@ include_directories(
     src/utils/
     src/db/
     src/user/
-    src/test/
 )
 
 #编译源码文件src/socket_server.cpp，生成可执行文件http_server
@@ -63,14 +61,14 @@ find_package(GTest REQUIRED)
 add_executable(test_all
         tests/test_http_handler.cpp
         tests/test_buffer_pool.cpp
+        tests/test_db.cpp
+        tests/test_lru_cache.cpp
         src/http/HttpHandler.cpp
         src/net/TcpServer.cpp
         src/utils/Logger.cpp
         src/utils/ThreadPool.cpp
         src/utils/LRU_Cache.cpp
-        src/db/DB.cpp
         src/user/User.cpp
-        src/test/Test.cpp
 )
 
 #测试头文件目录
@@ -80,8 +78,7 @@ target_include_directories(test_all PRIVATE
     src/http/
     src/utils/
     src/db/
-    src/user
-    src/test/
+    src/user/
 )
 
 #链接Google Test和其他库

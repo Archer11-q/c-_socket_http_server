@@ -8,17 +8,13 @@
 #include"utils/Logger.h"//cout、cerr替换
 #include<string>	//字符串拼接
 #include"db/DB.hpp"
-#include "test/Test.h"
+#include<ctime>   //设置启动时间
 
 int main(int argc,char *argv[]) {
-  // 检查是否为测试模式
-  if (argc >= 2 && std::string(argv[1]) == "test") {
-    Test::run(argc, argv);
-    return 0;
-  }
-
   Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
-  
+
+  HttpHandler::initServerStartTime(); //记录服务器启动时间
+
   //数据库初始化
   LOG_INFO("系统启动，开始初始化数据库连接");
   bool db_ok=DB::instance().connect(

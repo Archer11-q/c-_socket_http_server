@@ -1,7 +1,20 @@
 #include "HttpHandler.h"
 
+//类外定义静态变量
+std::atomic<long long> HttpHandler::total_requests{0}; //初始化累计请求数为0
+std::atomic<int> HttpHandler::active_connections{0};   //初始化当前活跃连接数为0
+time_t HttpHandler::start_time;
+void HttpHandler::initServerStartTime()
+{
+  start_time=time(nullptr); //记录服务器启动时间
+}
+
 //【Kepp-Alive模式】处理客户端请求
 void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,bool& keep_alive) {
+  //增加连接数和总请求数
+  active_connections++;
+  total_requests++;
+
   //1.初始化连接状态
   keep_alive=false;
 
@@ -59,6 +72,17 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     return; //登录接口处理完成，直接返回
   }
 
+  //路由3：服务器状态监控接口
+  if (method=="GET" && path=="/status")
+  {
+    std::string response_body=buildStatusJson(); //构建服务器状态的JSON响应
+    sendJsonResponse(client_fd,200,response_body,keep_alive); //发送响应
+
+    //减少活跃连接数
+    active_connections--;
+    return; //状态接口处理完成，直接返回
+  }
+
   //7.处理默认动态响应/404
   response_body=build_http_response(path);
   //解析原有响应的状态码，判断是否包含404
@@ -81,6 +105,9 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
     sent+=ret;  //更新已经成功发送的字节数
   }
   LOG_DEBUG("动态响应发送成功，fd= "+std::to_string(client_fd)+", keep_alive= "+std::to_string(keep_alive));
+
+  //减少活跃连接数
+  active_connections--;
 }
 
 
@@ -359,6 +386,41 @@ void HttpHandler::sendJsonResponse(int client_fd,int code,const std::string& jso
     }
     sent+=ret;    //累加已发送的字节数
   }
+}
+
+//构建服务器状态监控的JSON响应数据
+std::string HttpHandler::buildStatusJson()
+{
+  //定义系统资源使用结构体，用于获取进程的内存、CUP等资源占用信息
+  struct rusage usage;
+  //获取当前进程自身的资源使用数据
+  getrusage(RUSAGE_SELF,&usage);
+  //提取进程最大常驻内存大小
+  long memory_kb=usage.ru_maxrss; //单位KB
+
+  //获取当前系统时间
+  time_t now=time(nullptr);
+  //计算服务器运行时间：当前时间-服务器启动时间
+  double uptime=difftime(now,start_time); //单位秒
+
+  //原子操作读取累计总请求数：线程安全，避免多线程统计冲突
+  long long total_req=total_requests.load();
+  //原子操作读取当前活跃连接数
+  int active_conn=active_connections.load();
+
+  //计算服务器QPS：总请求数/运行时长；运行时长为0时，QPS置零
+  double qps=uptime>0? total_req/uptime : 0.0;
+
+  //手动拼接标准JSON格式字符串，封装所有监控指标
+  std::string json="{";
+  json += "\"uptime\":"+std::to_string(uptime)+",";                 //服务器运行时间
+  json += "\"total_requests\":"+std::to_string(total_req)+",";      //累计处理请求总数
+  json += "\"active_connections\":"+std::to_string(active_conn)+",";//当前活跃连接数
+  json += "\"memory_kb\":"+std::to_string(memory_kb)+",";           //进程内存占用，单位KB
+  json += "\"qps\":"+std::to_string(qps);                           //平均每秒请求数
+  json += "}";
+
+  return json;
 }
   
   
