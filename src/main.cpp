@@ -11,7 +11,7 @@
 #include<ctime>   //设置启动时间
 
 int main(int argc,char *argv[]) {
-  Logger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
+  AsyncLogger::getInstance().setLogFile("/home/archer/projects/cpp_socket_http_server/logs/http_server.log");
 
   HttpHandler::initServerStartTime(); //记录服务器启动时间
 

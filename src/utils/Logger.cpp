@@ -1,3 +1,4 @@
+#include "Logger.h"
 #include"Logger.h"
 
 //日志级别转字符串，用于格式化输出
@@ -67,6 +68,106 @@ void Logger::log(Level level,const std::string& message) {
     log_file<<log_str;	//将完成拼接的字符串写入日志文件
     log_file.flush();	//强制刷新缓冲区，避免日志丢失
   }
+}
+
+
+// 异步日志实现
+//静态单例指针初始化
+AsyncLogger* AsyncLogger::instance=nullptr;
+
+//获取单例实例
+AsyncLogger& AsyncLogger::getInstance()
+{
+  static AsyncLogger instance;
+  return instance;
+}
+
+//构造函数：初始化停止标志位，创建并启动后台工作线程
+AsyncLogger::AsyncLogger():stop_flag_(false)
+{
+  worker_thread_=std::thread(&AsyncLogger::worker,this);  //绑定成员函数，传递this指针
+}
+
+//析构函数：自动调用stop函数，安全回收线程资源，保证程序退出前日志全部写入
+AsyncLogger::~AsyncLogger()
+{
+  stop();
+}
+
+//日志写入接口（生产者）：完成日志格式化-->加锁入队-->通知消费线程
+void AsyncLogger::log(Logger::Level level,const std::string& message)
+{
+  //格式化日志
+  std::ostringstream oss;
+  oss<<getCurrentTime()<<"【PID："<<getpid()<<"】"
+     <<"【"<<levelToString(level)<<"】"<<message<<std::endl;
+  std::string log_str=oss.str();
+
+  //加锁保护队列，将格式化后的日志字符串加入队列
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    log_queue_.push(log_str);
+  }
+  cv_.notify_one();	//通知后台线程有新日志可处理
+}
+
+//设置日志输出文件路径：加锁保证文件操作线程安全，关闭已有文件并以追加模式打开新文件
+void AsyncLogger::setLogFile(const std::string& filepath)
+{
+  std::lock_guard<std::mutex> lock(queue_mutex_);
+  if (log_file_.is_open()) log_file_.close();
+
+  log_file_.open(filepath,std::ios::out | std::ios::app);
+
+  //文件打开失败时向标准错误输出提示信息
+  if (!log_file_.is_open())
+    std::cerr<<"AsyncLogger: open log file failed - "<<filepath<<std::endl;
+}
+
+//后台工作线程函数（消费者）：循环等待日志任务，从队列取出并输出到控制台+文件
+void AsyncLogger::worker()
+{
+  //未收到停止信号时持续循环
+  while (!stop_flag_)
+  {
+    std::string log_str;
+    {
+      //加锁等待条件变量通知
+      std::unique_lock<std::mutex> lock(queue_mutex_);
+
+      //等待条件：队列非空 或 收到停止信号
+      cv_.wait(lock,[this]()
+      {
+        return !log_queue_.empty() || stop_flag_;
+      });
+
+      //停止信号+队列为空，退出线程循环
+      if (stop_flag_ && log_queue_.empty()) break;
+      //从队列头部取出一条日志并弹出
+      if (!log_queue_.empty())
+      {
+        log_str=log_queue_.front();
+        log_queue_.pop();
+      }
+    }
+    //解锁后执行耗时IO操作：输出到控制台
+    std::cout<<log_str;
+    //输出到日志文件并立即刷新缓冲区
+    if (log_file_.is_open())
+    {
+      log_file_<<log_str;
+      log_file_.flush();
+    }
+  }
+}
+
+//停止异步日志模块：设置停止标志，唤醒线程，等待工作线程执行完毕后回收线程资源
+void AsyncLogger::stop()
+{
+  stop_flag_=true;
+  cv_.notify_one(); //唤醒阻塞在条件变量上的后台工作线程
+  //主线程等待后台工作线程执行完毕，回收线程资源
+  if (worker_thread_.joinable()) worker_thread_.join();
 }
   
     
