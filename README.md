@@ -14,7 +14,7 @@ B4 --> B42[tests/test_buffer_pool.cpp - 缓冲池复用测试]
 
 A --> D[utils 通用工具层]
 D --> D1[utils/Logger 日志模块]
-D1 --> D14【异步日志：生产者-消费者模型，业务线程无阻塞]
+D1 --> D14[异步日志：生产者-消费者模型，业务线程无阻塞]
 D --> D2[utils/ThreadPool 线程池]
 D --> D3[utils/LRU_Cache 缓存层]
 D --> D11[分层日志：DEBUG/INFO/WARN/ERROR]
