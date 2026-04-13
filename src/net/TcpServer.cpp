@@ -259,7 +259,7 @@ void TcpServer::startWithEpoll() {
           //7.1循环读取数据：一次性读完所有可用数据
           while((recv_len=recv(fd,buffer.data(),buffer.size()-1,0))>0){
             req_buffer.append(buffer.data(),recv_len);//将读取的数据追加到缓存
-            memset(buffer.data(),0,buffer.size());  //清空临时缓冲区
+            //memset(buffer.data(),0,buffer.size());  //清空临时缓冲区
           }
 
           //7.2处理recv返回-1的情形
@@ -291,7 +291,7 @@ void TcpServer::startWithEpoll() {
                 //处理单个完整HTTP请求，获取长连接状态
                 HttpHandler handler;
                 bool keep_alive=false; //默认短连接
-                usleep(1000); //模拟处理请求的耗时，实际应用中可去掉
+                //usleep(1000); //模拟处理请求的耗时，实际应用中可去掉
                 handler.handleRequest(fd,data.c_str(),data.size(),keep_alive);
 
                 if (!keep_alive)
@@ -305,12 +305,12 @@ void TcpServer::startWithEpoll() {
               //短连接：处理完当前请求后，标记关闭，不再处理后续请求
               //if (!keep_alive) {
               //  is_conn_close=true;
-                break;
+              //break;
               //}
             } //循环检查关闭
             //长连接/半包
-            if(!is_conn_close)
-              LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 长连接复用/等待半包数据").c_str());
+            //if(!is_conn_close)
+              //LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 长连接复用/等待半包数据").c_str());
           }   //退出处理HTTP请求判断
 
           //统一归还缓冲区
