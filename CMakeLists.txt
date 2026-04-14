@@ -24,6 +24,8 @@ set(SOURCE
     src/utils/ThreadPool.h
     src/utils/LRU_Cache.cpp
     src/utils/LRU_Cache.h
+    src/utils/MySQLPool.cpp
+    src/utils/MySQLPool.h
 )
 
 #头文件目录
@@ -69,6 +71,7 @@ add_executable(test_all
         src/utils/ThreadPool.cpp
         src/utils/LRU_Cache.cpp
         src/user/User.cpp
+        src/utils/MySQLPool.cpp
 )
 
 #测试头文件目录

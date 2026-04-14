@@ -3,6 +3,7 @@
 #include<string>        //字符串依赖
 #include<cstdio>
 #include"../utils/Logger.h"
+#include"../utils/MySQLPool.h"
 
 class DB{
 public:
@@ -28,7 +29,4 @@ public:
 private:
   //私有化构造单例
   DB();
-
-  //MySQL连接句柄
-  MYSQL* _conn;
 };
