@@ -65,6 +65,7 @@ add_executable(test_all
         tests/test_buffer_pool.cpp
         tests/test_db.cpp
         tests/test_lru_cache.cpp
+        tests/test_connection_pool.cpp
         src/http/HttpHandler.cpp
         src/net/TcpServer.cpp
         src/utils/Logger.cpp
@@ -72,6 +73,7 @@ add_executable(test_all
         src/utils/LRU_Cache.cpp
         src/user/User.cpp
         src/utils/MySQLPool.cpp
+        tests/test_connection_pool.cpp
 )
 
 #测试头文件目录
