@@ -50,9 +50,13 @@ private:
   static std::atomic<long long> total_requests; //累计请求数
   static std::atomic<int> active_connections;   //当前活跃连接数
   static time_t start_time;                     //服务器启动时间
+  static std::atomic<long> cached_memory_kb_;   //缓存的内存值
+  static std::atomic<time_t> last_update_time_; //上次更新时间戳
 
   //构建 /status 接口的JSON响应
   static std::string buildStatusJson();
+  //更新内存缓存
+  static void updateStatusCache();
 
   //静态文件处理公共逻辑
   bool handleStaticFileCore(int client_fd,const std::string& safe_path,bool keep_alive);
