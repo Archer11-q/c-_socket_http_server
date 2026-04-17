@@ -290,8 +290,8 @@ void TcpServer::startWithEpoll() {
               {
                 //处理单个完整HTTP请求，获取长连接状态
                 HttpHandler handler;
-                bool keep_alive=false; //默认短连接
                 //usleep(1000); //模拟处理请求的耗时，实际应用中可去掉
+                bool keep_alive=false; //默认短连接
                 handler.handleRequest(fd,data.c_str(),data.size(),keep_alive);
 
                 if (!keep_alive)

@@ -31,7 +31,7 @@ int main(int argc,char *argv[]) {
 
 
   try {
-    ThreadPool pool(8); //创建线程池实例，指定线程数量
+    ThreadPool pool(16); //创建线程池实例，指定线程数量
     TcpServer tcp_server(&pool);	//创建TCP服务实例，自动调用构造函数初始化
      
     //用命令行判断是否传入两个参数，若传入的参数中包含select，则打开select模式
