@@ -1,4 +1,7 @@
 #include "HttpHandler.h"
+#include<vector>
+#include<algorithm>
+#include<cstring>
 
 //类外定义静态变量
 std::atomic<long long> HttpHandler::total_requests{0}; //初始化累计请求数为0
@@ -6,6 +9,89 @@ std::atomic<int> HttpHandler::active_connections{0};   //初始化当前活跃�
 time_t HttpHandler::start_time;
 std::atomic<long> HttpHandler::cached_memory_kb_{0};
 std::atomic<time_t> HttpHandler::last_update_time_{0};
+
+// --------------------------路径修复工具函数--------------------------
+//路径表转化函数：解析路径中的../和./.生成绝对安全路径，防止路径遍历
+std::string normalizePath(const std::string& path)
+{
+  //存储路径拆分后的片段
+  std::vector<std::string> path_parts;    //存储路径拆分后的有效片段
+  std::stringstream ss(path);             //将输入路径字符串包装为流，便于按分隔符拆分
+  std::string part;                       //每次拆分得到的单个路径片段
+
+  //按照 / 分割路径，逐段解析
+  while (std::getline(ss,part,'/'))
+  {
+    //忽略空字符和当前目录./
+    if (part.empty() || part==".") continue;
+
+    //处理上级目录../：回退一层
+    if (part=="..") {
+      if (!path_parts.empty())
+        path_parts.pop_back();    //弹出上一级目录
+    } else                        //正常路径片段，直接加入列表
+      path_parts.push_back(part);
+  }
+
+  //拼接所有片段，生成标准绝对路径
+  std::string normalized_path;
+  for (const auto& p:path_parts)
+    normalized_path+="/"+p;
+
+  //兜底：路径为空时返回根目录
+  return normalized_path.empty()?"/":normalized_path;
+}
+
+//路径安全校验函数：判断目标路径是否在授权的静态根目录内
+bool isPathWithinRoot(const std::string& normalized_path,const std::string& static_root)
+{
+  //目标路径必须以静态根目录为开头
+  return normalized_path.find(static_root)==0;
+}
+
+//手动发送HTTP 403 Forbidden响应
+bool send403Response(int client_fd,bool keep_alive)
+{
+  //构造标准HTTP 403响应报文
+  std::string response = "HTTP/1.1 403 Forbidden\r\n";
+  response += "Content-Type: text/plain\r\n";
+  response += "Content-Length: 0\r\n";
+
+  //兼容长连接配置
+  response += (keep_alive?"Connection: keep-alive\r\n":"Connection: close\r\n");
+  //HTTP响应头结束标志
+  response += "\r\n";
+
+  //发送响应，MSG_MOSIGAL防止客户端断开时程序崩溃
+  send(client_fd,response.c_str(),response.size(),MSG_NOSIGNAL);
+  return false; //固定返回false，表示请求失败
+}
+
+//从config.json读取静态文件根路径
+std::string loadStaticRootFromConfig()
+{
+  //打开项目根目录的配置文件
+  std::ifstream config_file("config.json");
+  //配置文件打开失败，兜底默认路径
+  if (!config_file.is_open())
+    return "/home/archer/projects/cpp_socket_http_server/public";
+
+  //读取配置文件全部内容
+  std::stringstream buffer;
+  buffer<<config_file.rdbuf();
+  std::string file_content=buffer.str();
+
+  //提取static_root对应的字符串值
+  size_t key_pos=file_content.find("static_root");
+  size_t value_start=file_content.find("\"",key_pos+12)+1;
+  size_t value_end=file_content.find("\"",value_start);
+  return file_content.substr(value_start,value_end-value_start);
+}
+
+//全局静态变量：程序启动时加载一次配置，避免重复读取文件
+static std::string static_root=normalizePath(loadStaticRootFromConfig());
+
+// -----------------------------------------------------------------
 
 //初始化服务记录的启动时间
 void HttpHandler::initServerStartTime()
@@ -44,8 +130,8 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   keep_alive=false;
 
   //2.检查请求完整性
-  if(!isrequestcomplete(buffer,length)) {
-    log_warn("请求不完整，等待后续数据，fd="+std::to_string(client_fd));
+  if(!isRequestComplete(buffer,length)) {
+    LOG_WARN("请求不完整，等待后续数据，fd="+std::to_string(client_fd));
     keep_alive=true;  //请求不完整但保持连接，等待后续数据补全
     return; //请求不完整，直接返回，保持连接状态为false，调用者根据该状态决定是否关闭连接
   }
@@ -53,6 +139,7 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   //3.解析请求基础信息
   std::string request(buffer,length); //获取请求，将buffer转化为字符串
   std::string path=parse_http_path(request);  //提取路径
+  //std::string path="/../etc/passwd";  //测试路径遍历攻击
   std::string method=parse_http_method(request);  //解析HTTP请求的方法和请求体，获取GET/POST
   keep_alive=shouldKeepAlive(request);  //判断是否保持连接
 
@@ -234,22 +321,24 @@ bool HttpHandler::handleStaticFileCore(int client_fd,const std::string& safe_pat
 
 //向客户端发送指定路径对应的静态文件，判断是否发送成功
 bool HttpHandler::serverStaticFile(int client_fd,const std::string& path) {
-  //安全限制：只允许访问public目录下的文件，拼接安全路径
-  std::string project_root = "/home/archer/projects/cpp_socket_http_server";
-  std::string safe_path = project_root + "/public" + path;  
-  
-  //调用核心函数，默认长连接为关闭
-  return handleStaticFileCore(client_fd,safe_path,false);
+  //代码复用：调用带长连接参数的重载函数
+  return serverStaticFile(client_fd,path,false);
 }
 
 
 //重构静态文件响应
 bool HttpHandler::serverStaticFile(int client_fd,const std::string& path,bool keep_alive) {
-  //拼接静态文件路径
-  std::string project_root = "/home/archer/projects/cpp_socket_http_server";
-  std::string safe_path=project_root+"/public"+path;
+  //1.拼接配置的根路径+用户的请求路径
+  std::string raw_full_path=static_root+path;
+  //2.标准化路径：解析../ ./，生成安全路径防遍历
+  std::string safe_full_path=normalizePath(raw_full_path);
 
-  return handleStaticFileCore(client_fd,safe_path,keep_alive);
+  //3.安全校验：路径不在授权目录内->返回403
+  if (!isPathWithinRoot(safe_full_path,static_root))
+    return send403Response(client_fd,keep_alive);
+
+  //4.校验通过：调用原有函数处理文件发送
+  return handleStaticFileCore(client_fd,safe_full_path,keep_alive);
 }
 
 
@@ -448,5 +537,4 @@ std::string HttpHandler::buildStatusJson()
 
   return json;
 }
-  
-  
+
