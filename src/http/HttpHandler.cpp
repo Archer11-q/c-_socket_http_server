@@ -44,8 +44,8 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   keep_alive=false;
 
   //2.检查请求完整性
-  if(!isRequestComplete(buffer,length)) {
-    LOG_WARN("请求不完整，等待后续数据，fd="+std::to_string(client_fd));
+  if(!isrequestcomplete(buffer,length)) {
+    log_warn("请求不完整，等待后续数据，fd="+std::to_string(client_fd));
     keep_alive=true;  //请求不完整但保持连接，等待后续数据补全
     return; //请求不完整，直接返回，保持连接状态为false，调用者根据该状态决定是否关闭连接
   }
@@ -111,7 +111,7 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   //7.处理默认动态响应/404
   response_body=build_http_response(path);
   //解析原有响应的状态码，判断是否包含404
-  int status_code=(response_body.find("404 Not Found")!=std::string::npos) ? 404 : 200; 
+  int status_code=(response_body.find("404 Not Found")!=std::string::npos) ? 404 : 200;
   std::string response=build_http_response(status_code,"text/plain; charset=utf-8",
     response_body.substr(response_body.find("\r\n\r\n")+4),keep_alive);
 

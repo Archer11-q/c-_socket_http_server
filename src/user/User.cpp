@@ -75,36 +75,91 @@ std::string User::registerUser(const std::string& username,const std::string& pa
     return "{\"code\":-1,\"msg\":\"参数不能为空\"}";
   }
 
-  //构建SQL查询语句，检查用户名是否已存在
-  char sql[256];
-  sprintf(sql,
-    "SELECT * FROM users WHERE username='%s'",
-    username.c_str()
-  );
-  MYSQL_RES* res=DB::instance().query(sql);
+  //1.从项目数据库获取原生MySQL连接
+  MYSQL* conn=MySQLPool::getInstance().getConnection();
+  if (!conn)
+  {
+    LOG_ERROR("数据库连接失败");
+    return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+  }
 
-  //如果查询结果有记录，说明用户名已被占用
+  //2.创建预处理语句
+  MYSQL_STMT* stmt=mysql_stmt_init(conn);
+  if (!stmt)
+  {
+    LOG_ERROR("预处理语句创建失败");
+    MySQLPool::getInstance().releaseConnection(conn);
+    return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+  }
+
+  //3.预处理SQL：检查用户名是否存在
+  if (mysql_stmt_prepare(stmt,"SELECT * FROM users WHERE username=?",-1)!=0)
+  {
+    LOG_ERROR("预处理SQL失败");
+    mysql_stmt_close(stmt);
+    MySQLPool::getInstance().releaseConnection(conn);
+    return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+  }
+
+  //4.绑定参数：关联用户输入和SQL占位符
+  MYSQL_BIND bind[1]={0};
+  bind[0].buffer_type=MYSQL_TYPE_STRING;   //参数类型：字符串
+  bind[0].buffer=(void*)username.c_str();  //用户输入的用户名
+  bind[0].buffer_length=username.size();   //用户名长度
+  mysql_stmt_bind_param(stmt,bind);        //将参数绑定到预处理语句
+
+  //5.执行查询
+  mysql_stmt_execute(stmt);                     //执行预处理语句，查询数据库中是否已有该用户名
+  mysql_stmt_store_result(stmt);
+  MYSQL_RES *res=mysql_stmt_result_metadata(stmt); //获取查询结构集
+
+  //6.如果查询结果有记录，说明用户名已被占用
   if(mysql_num_rows(res)>0){
     mysql_free_result(res);   //释放查询结果集，避免内存泄漏
+    mysql_stmt_close(stmt);
+    MySQLPool::getInstance().releaseConnection(conn);
     std::string msg="[User] 注册失败：用户名已存在 -> "+username;
     LOG_WARN(msg);
     return "{\"code\":-1,\"msg\":\"用户名已存在\"}";
   }
-  mysql_free_result(res); //释放结果集
+  mysql_free_result(res);                           //释放结果集
+  mysql_stmt_close(stmt);                           //关闭预处理语句，释放内存
 
+  //7.生成密码和盐
   //生成16字节随机盐值，增强密码安全性，防止彩虹表攻击
   std::string salt=generateSalt(16);
   //使用SHA256算法对密码加盐后加密，得到安全的密码哈希值
   std::string safe_pwd=encryptPassword(password,salt);
 
-  //构建INSERT语句，将用户名、加密后的密码和盐值存入数据库
-  sprintf(sql,
-    "INSERT INTO users(username,password,salt) VALUES('%s','%s','%s')",
-     username.c_str(),
-     safe_pwd.c_str(),
-     salt.c_str()
-  );
-  DB::instance().execute(sql);    //执行插入操作
+  //8.重新初始化预处理语句，用于插入数据
+  stmt=mysql_stmt_init(conn);
+  if (!stmt) {
+    LOG_ERROR("预处理语句创建失败");
+    MySQLPool::getInstance().releaseConnection(conn);
+    return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+  }
+  //预处理插入SQL：用户名、密码、盐
+  mysql_stmt_prepare(stmt,"INSERT INTO users(username,password,salt) VALUES(?,?,?)",-1);
+
+  //绑定3个输入参数
+  MYSQL_BIND insert_bind[3]={0};
+  //绑定用户名
+  insert_bind[0].buffer_type=MYSQL_TYPE_STRING;
+  insert_bind[0].buffer=(void*)username.c_str();
+  insert_bind[0].buffer_length=username.size();
+  //绑定加密后的密码
+  insert_bind[1].buffer_type=MYSQL_TYPE_STRING;
+  insert_bind[1].buffer=(void*)safe_pwd.c_str();
+  insert_bind[1].buffer_length=safe_pwd.size();
+  //绑定盐值
+  insert_bind[2].buffer_type=MYSQL_TYPE_STRING;
+  insert_bind[2].buffer=(void*)salt.c_str();
+  insert_bind[2].buffer_length=salt.size();
+
+  mysql_stmt_bind_param(stmt,insert_bind);  //绑定所有参数
+  mysql_stmt_execute(stmt);                 //安全执行插入
+  mysql_stmt_close(stmt);                   //释放预处理语句资源
+  MySQLPool::getInstance().releaseConnection(conn); //归还连接到连接池
 
   //记录成功日志并返回响应
   std::string msg="[User] 注册成功 -> "+username;
@@ -137,29 +192,76 @@ std::string User::loginUser(const std::string& username,const std::string& passw
   }
 
   if (cached_data.empty()) {
-    // 缓存未命中，从数据库查询
-    char sql[256];
-    sprintf(sql,
-      "SELECT password,salt FROM users WHERE username='%s'",
-       username.c_str()
-    );
-    MYSQL_RES* res = DB::instance().query(sql);
+    //1.获取原生数据库连接
+    MYSQL* conn=MySQLPool::getInstance().getConnection();
+    if(!conn){
+      LOG_ERROR("[User] 登录失败：数据库连接失败");
+      return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+    }
 
-    // 检查用户是否存在：查询结果为空说明不存在
-    if (mysql_num_rows(res) == 0) {
-      mysql_free_result(res);   // 释放结果集
+    //2.创建预处理语句
+    MYSQL_STMT* stmt=mysql_stmt_init(conn);
+    if(!stmt){
+      LOG_ERROR("[User] 预处理语句创建失败");
+      MySQLPool::getInstance().releaseConnection(conn);
+      return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+    }
+
+    //3.预处理SQL
+    if (mysql_stmt_prepare(stmt,"SELECT password,salt FROM users WHERE username=?",-1)!=0)
+    {
+      LOG_ERROR("[User] 预处理SQL失败");
+      mysql_stmt_close(stmt);
+      MySQLPool::getInstance().releaseConnection(conn);
+      return "{\"code\":-1,\"msg\":\"服务器异常\"}";
+    }
+
+    //4.绑定用户输入的用户名
+    MYSQL_BIND bind[1]={0};
+    bind[0].buffer_type=MYSQL_TYPE_STRING;
+    bind[0].buffer=(void*)username.c_str();
+    bind[0].buffer_length=username.size();
+    mysql_stmt_bind_param(stmt,bind);
+
+    //5.执行查询
+    mysql_stmt_execute(stmt);                 //执行安全查询
+
+    //6.定义缓冲区：存查询出来的password和salt
+    char pwd_buf[256]={0};
+    char salt_buf[256]={0};
+
+    //7.定义结果绑定结构体，用来接收SELECT返回的两个字段
+    MYSQL_BIND result_bind[2]={0};
+    //绑定password
+    result_bind[0].buffer_type=MYSQL_TYPE_STRING;  // 类型是字符串
+    result_bind[0].buffer=pwd_buf;                 // 数据存到pwd_buf
+    result_bind[0].buffer_length=sizeof(pwd_buf);  // 缓冲区大小
+    //绑定salt
+    result_bind[1].buffer_type=MYSQL_TYPE_STRING;
+    result_bind[1].buffer=salt_buf;
+    result_bind[1].buffer_length=sizeof(salt_buf);
+
+    mysql_stmt_bind_result(stmt,result_bind);
+
+    //8.从预处理结果中抓取一行数据到缓冲区
+    if(mysql_stmt_fetch(stmt)!=0){
+      //没有查到数据
+      mysql_stmt_close(stmt);
+      MySQLPool::getInstance().releaseConnection(conn);
       std::string msg = "[User] 登录失败：用户不存在 -> " + username;
       LOG_WARN(msg);
       return "{\"code\":-1,\"msg\":\"用户不存在\"}";
     }
 
-    // 获取查询结果的第一行数据
-    MYSQL_ROW row = mysql_fetch_row(res);
-    db_pwd = row[0];       // 数据库中存储的加密密码
-    salt = row[1];         // 该用户对应盐值
-    mysql_free_result(res);          // 释放结果集
+    //9.把缓冲区赋值给业务变量
+    db_pwd=pwd_buf;
+    salt=salt_buf;
 
-    // 缓存数据
+    //10.释放资源
+    mysql_stmt_close(stmt); //关闭预处理语句
+    MySQLPool::getInstance().releaseConnection(conn); //归还连接
+
+    //11.缓存数据
     std::string cache_value = db_pwd + ":" + salt;
     user_cache.put(username, cache_value);
   }

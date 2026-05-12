@@ -7,6 +7,7 @@
 //HttpHandler 只调用这里的接口
 
 #include "../utils/LRU_Cache.h"
+#include"../utils/MySQLPool.h"      //获取原生MySQL连接
 
 class User {
 public:
