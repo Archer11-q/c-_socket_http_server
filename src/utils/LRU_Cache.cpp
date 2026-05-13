@@ -47,6 +47,9 @@ void LRU_Cache::removeTail() {
 
 // 根据key查询缓存值，不存在返回空字符串；存在则更新访问顺序，返回当前节点值
 std::string LRU_Cache::get(const std::string& key) {
+    //RAII自动锁，构造时加锁，函数结束自动解锁，避免漏解锁/死锁
+    std::lock_guard<std::mutex> lock(mtx);
+
     // 哈希表中未找到key，返回空字符串
     if (map.find(key) == map.end()) return "";
 
@@ -58,6 +61,9 @@ std::string LRU_Cache::get(const std::string& key) {
 
 // 插入/更新键值对，容量满时淘汰尾部节点
 void LRU_Cache::put(const std::string& key, const std::string& value) {
+    //与get方法共用一把锁，保证线程安全
+    std::lock_guard<std::mutex> lock(mtx);
+
     // 如果key存在，更新value并更新访问顺序
     if (map.find(key) != map.end()) {
         CacheNode* node = map[key];    // 找到对应节点

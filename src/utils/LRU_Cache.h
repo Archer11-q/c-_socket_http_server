@@ -3,6 +3,7 @@
 
 #include <unordered_map>
 #include <string>
+#include <mutex>
 
 // 双向链表结构体：存储缓存键值对，维护前后节点指针
 struct CacheNode {
@@ -35,6 +36,8 @@ private:
     CacheNode* head; // 双向链表头节点指针：指向最近使用的节点
     CacheNode* tail; // 双向链表尾节点指针：指向最久未使用的节点，淘汰时从尾部删除
     std::unordered_map<std::string, CacheNode*> map; // 哈希表：key->链表节点，实现O(1)时间查找
+
+    std::mutex mtx;  //线程安全互斥锁，保护所有共享资源
 
     // 私有化核心逻辑：1.移除节点再插入头节点、2.新节点出入头部、3.淘汰尾部节点
     void moveToHead(CacheNode* node);
