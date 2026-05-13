@@ -72,6 +72,7 @@ private:
   static const int EPOLL_CHECK_INTERVAL=5000; //5s检查间隔
   BufferPool buffer_pool_;  //内存池实例
   ThreadPool* thread_pool_; //线程池指针
+  std::unordered_map<int,std::string> client_buffers_; //客户端数据缓存：解决粘包问题，存储每个fd未处理完的数据
 
   //声明select模式的核心方法
   void startWithSelect();

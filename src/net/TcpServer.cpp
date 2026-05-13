@@ -252,21 +252,20 @@ void TcpServer::startWithEpoll() {
             connections_[fd].last_active=time(nullptr); //更新最后活跃时间
 
           std::vector<char> buffer=buffer_pool_.acquire();//从内存中获取缓冲区
-          std::string req_buffer; //缓存所有读取的数据，解决粘包
           ssize_t recv_len = 0;   //存储每次调用recv读取的字节数
           bool is_conn_close=false; //标记连接是否需要关闭
 
+          //---------------------【循环读取数据】---------------------
           //7.1循环读取数据：一次性读完所有可用数据
           while((recv_len=recv(fd,buffer.data(),buffer.size()-1,0))>0){
-            req_buffer.append(buffer.data(),recv_len);//将读取的数据追加到缓存
-            //memset(buffer.data(),0,buffer.size());  //清空临时缓冲区
+            client_buffers_[fd].append(buffer.data(),recv_len);//将读取的数据追加到缓存
           }
 
           //7.2处理recv返回-1的情形
           if(recv_len==0) { //客户端主动关闭连接
             LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 客户端主动关闭连接").c_str());
             is_conn_close=true;
-          } else if(recv_len<0) {
+          } else if(recv_len<0) { //出错或无数据
               if(errno!=EAGAIN && errno!=EWOULDBLOCK) {
                 LOG_SYS_ERROR(("【Epoll】fd="+std::to_string(fd)+" recv failed").c_str());
                 is_conn_close=true;
@@ -274,50 +273,56 @@ void TcpServer::startWithEpoll() {
               //EAGAIN/EWOULDBLOCK数据已读完，无需处理
           }
 
+          // ----------------------【循环拆包：处理粘包】---------------------
           //7.3解析并处理缓存中的HTTP请求：循环解析+解决粘包
-          if(!is_conn_close && !req_buffer.empty())
-          {
-            size_t offset=0;  //移动指针，跳过已读数据包，指向下一个数据包起始位置
+          if(!is_conn_close) {
+            //无限循环，直到缓冲区里没有完整HTTP请求为止
+            while(true) {
+              //获取当前客户端的完整缓冲区数据
+              const std::string& data=client_buffers_[fd];
 
-            while(offset<req_buffer.size())
-            {
-              //循环检查是否读取完
-              //调用HttpHandler接口，判断当前偏移后的数据是否是完整请求
-              size_t remain_len=req_buffer.size()-offset;
+              //1.查看请求头结束标志：\r\n\r\n
+              size_t header_end=data.find("\r\n\r\n");
 
-              //线程池异步处理HTTP
-              thread_pool_->enqueue([this,fd,data=std::string(req_buffer.c_str()+offset,remain_len)]()
+              //没有找到请求头结束符 -> 数据不完整（半包），退出循环，等待下一次数据
+              if (header_end==std::string::npos) break;
+
+              //2.解析Content-Length，计算完整请求总长度
+              HttpHandler handler;
+              size_t total_len=handler.getFullRequestLength(data,header_end);
+
+              //总长度为0 或 缓冲区数据不足 -> 请求不完整，等待后续数据
+              if (total_len==0 || data.size()<total_len) break;
+
+              //3. 截取一个完整HTTP请求
+              //只把完整请求交给业务层，彻底解决粘包
+              std::string full_request=data.substr(0,total_len);
+
+              //4.从缓冲区中移除已经处理完的请求，保留剩余数据
+              client_buffers_[fd]=data.substr(total_len);
+
+              // -------------------【异步处理完整HTTP请求】---------------------
+              thread_pool_->enqueue([this,fd,full_request]()
               {
                 //处理单个完整HTTP请求，获取长连接状态
                 HttpHandler handler;
                 //usleep(1000); //模拟处理请求的耗时，实际应用中可去掉
                 bool keep_alive=false; //默认短连接
-                handler.handleRequest(fd,data.c_str(),data.size(),keep_alive);
+                handler.handleRequest(fd,full_request.c_str(),full_request.size(),keep_alive);
 
-                if (!keep_alive)
-                  closeConnection(fd); //短连接：处理完当前请求后关闭连接
+                /*if (!keep_alive)
+                  closeConnection(fd); //短连接：处理完当前请求后关闭连接*/
               });
-
-              //找到当前请求的结束位置，更新偏移量
-              size_t req_end=req_buffer.find("\r\n\r\n",offset)+4;
-              offset=req_end;
-
-              //短连接：处理完当前请求后，标记关闭，不再处理后续请求
-              //if (!keep_alive) {
-              //  is_conn_close=true;
-              //break;
-              //}
             } //循环检查关闭
-            //长连接/半包
-            //if(!is_conn_close)
-              //LOG_INFO(("【Epoll】fd="+std::to_string(fd)+" 长连接复用/等待半包数据").c_str());
           }   //退出处理HTTP请求判断
 
-          //统一归还缓冲区
-          buffer_pool_.release(std::move(buffer));
+          // ------------------------【连接关闭处理】----------------------
           //最终判断：是否关闭连接
-          /*if(is_conn_close)
-            closeConnection(fd); //关闭fd，自动移除connctions_*/
+          if(is_conn_close)
+            closeConnection(fd);      //关闭fd，自动移除connctions_
+
+          //归还临时缓冲区到内存池
+          buffer_pool_.release(std::move(buffer));
         }     //退出读取事件判断
       }       //退出遍历所有就绪事件循环
     }         //退出epoll主循环
@@ -355,10 +360,13 @@ void TcpServer::closeConnection(int fd) {
   //从监听列表移除超时的fd
   if(epoll_ctl(epoll_fd_,EPOLL_CTL_DEL,fd,nullptr)<0)
     LOG_ERROR(("epoll_ctl删除fd失败："+std::string(strerror(errno))).c_str());
+
+  client_buffers_.erase(fd);   //清理该fd的请求缓存
+  connections_.erase(fd);
+
   if(close(fd)<0)  //关闭超时fd
     LOG_ERROR(("关闭fd失败："+std::string(strerror(errno))).c_str());
 
-  connections_.erase(fd);
   LOG_INFO(("【Epoll模式】连接关闭：fd="+std::to_string(fd)).c_str());
 }
 

@@ -44,6 +44,8 @@ public:
   std::string getMimeType(const std::string& file_path);
   //初始化服务器启动时间
   static void initServerStartTime();
+  //粘包修复：根据原始数据 + 请求头结束位置，计算一个完整HTTP请求的总长度
+  size_t getFullRequestLength(const std::string& raw_data,size_t header_end);
 
 private:
   //服务器状态统计变量

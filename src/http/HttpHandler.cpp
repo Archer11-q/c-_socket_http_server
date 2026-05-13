@@ -538,3 +538,33 @@ std::string HttpHandler::buildStatusJson()
   return json;
 }
 
+// 计算HTTP请求长度 = 请求头长度 + 请求体长度
+size_t HttpHandler::getFullRequestLength(const std::string& raw_data,size_t header_end)
+{
+  //请求头总长度 = \r\n\r\n结束位置+4
+  size_t header_len=header_end+4;
+
+  //请求体长度，默认0（GET请求无请求体）
+  size_t content_len=0;
+
+  //在请求头范围内查找Coontent-Length字段
+  size_t cl_pos=raw_data.find("Content-Length: ");
+  if (cl_pos!=std::string::npos && cl_pos<header_end) {
+    //提取数字部分：跳过“Content-Length: ”
+    size_t num_start=cl_pos+16;
+    //找到数字结尾的换行符
+    size_t num_end=raw_data.find("\r\n",num_start);
+    //截取数字字符串
+    std::string len_str=raw_data.substr(num_start,num_end-num_start);
+
+    //转为数字，异常时默认长度为0
+    try {
+      content_len=std::stoull(len_str); //转为无符号长整型
+    } catch (...) {
+      content_len=0;
+    }
+  }
+
+  //完整请求 = 头长度 + 体长度
+  return header_len + content_len;
+}
