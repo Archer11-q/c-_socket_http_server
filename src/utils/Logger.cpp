@@ -128,7 +128,7 @@ void AsyncLogger::setLogFile(const std::string& filepath)
 void AsyncLogger::worker()
 {
   //未收到停止信号时持续循环
-  while (!stop_flag_)
+  while (!stop_flag_ || !log_queue_.empty())
   {
     std::string log_str;
     {
