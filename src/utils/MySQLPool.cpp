@@ -49,10 +49,15 @@ MYSQL* MySQLPool::getConnection()
     std::unique_lock<std::mutex> lock(_mtx);
 
     //等待可用连接：连接池关闭 或 队列非空
-    _cond.wait(lock,[this]()
+    bool ok=_cond.wait_for(lock,std::chrono::seconds(5),[this]()
     {
         return _isClosed || !_connQueue.empty();
     });
+
+    if (!ok) {
+        LOG_WARN("[MySQLPool] 获取连接超时");
+        return nullptr;
+    }
 
     //如果连接池关闭，返回空
     if (_isClosed) return nullptr;
