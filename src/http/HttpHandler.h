@@ -15,6 +15,7 @@
 #include<atomic>  //用于线程安全的原子操作
 #include<ctime>   //用于时间统计
 #include<sys/resource.h>
+#include<errno.h>   //send错误码依赖
 
 
 //HTTP相关常量

@@ -209,12 +209,24 @@ void HttpHandler::handleRequest(int client_fd,const char* buffer,size_t length,b
   while(sent<total) { //未发送完继续发送
     //尝试发送尚未发送完的数据
     ssize_t ret=send(client_fd,response.c_str()+sent,total-sent,0);
-    if(ret<0) { //发送完毕
-      LOG_ERROR("发送响应失败，fd= "+std::to_string(client_fd));
+    if (ret>0)          //发送成功
+      sent+=ret;
+    else if (ret==0) {  //对端主动关闭连接
+      LOG_INFO("对端主动关闭连接，fd= "+std::to_string(client_fd));
       keep_alive=false;
+      active_connections--;   //减少活跃连接数
       return;
+    } else { //失败判断，处理非阻塞错误
+        if (errno==EAGAIN || errno==EWOULDBLOCK) {
+          usleep(100);
+          continue;
+        }
+        //真实错误断开连接
+        LOG_SYS_ERROR("发送响应失败，fd= "+std::to_string(client_fd));
+        keep_alive=false;
+        active_connections--; //失败时递减活跃连接计数
+        return;
     }
-    sent+=ret;  //更新已经成功发送的字节数
   }
   LOG_DEBUG("动态响应发送成功，fd= "+std::to_string(client_fd)+", keep_alive= "+std::to_string(keep_alive));
 
