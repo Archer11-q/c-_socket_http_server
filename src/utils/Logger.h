@@ -41,7 +41,6 @@ public:
   //设置日志输出文件路径
   void setLogFile(const std::string& filepath);
 
-  //停止异步日志模块
   //唤醒后台线程，刷新剩余日志，安全退出线程
   void stop();
 
@@ -52,11 +51,11 @@ private:
   ~AsyncLogger();
 
   //后台工作线程函数
-  //循环从队列取日志，写入文件
   void worker();
 
-  //单例实例指针
-  static AsyncLogger* instance;
+  //写入一条日志（供worker和stop兜底共用）
+  void writeOne(const std::string& log_str);
+
   //日志缓冲队列：存储待写入文件的日志字符串
   std::queue<std::string> log_queue_;
   //互斥锁：保护日志队列线程安全访问

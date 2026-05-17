@@ -1,14 +1,13 @@
 #include "Logger.h"
-#include"Logger.h"
 
 //日志级别转字符串，用于格式化输出
 static std::string levelToString(Logger::Level level) {
   switch(level) {
     case Logger::DEBUG: return "DEBUG";
-    case Logger::INFO: return "INFO";
-    case Logger::WARN: return "WARN";
+    case Logger::INFO:  return "INFO";
+    case Logger::WARN:  return "WARN";
     case Logger::ERROR: return "ERROR";
-    default:		return "UNKNOWN";
+    default:            return "UNKNOWN";
   }
 }
 
@@ -72,8 +71,6 @@ void Logger::log(Level level,const std::string& message) {
 
 
 // 异步日志实现
-//静态单例指针初始化
-AsyncLogger* AsyncLogger::instance=nullptr;
 
 //获取单例实例
 AsyncLogger& AsyncLogger::getInstance()
@@ -94,9 +91,23 @@ AsyncLogger::~AsyncLogger()
   stop();
 }
 
+//单条日志落盘（供worker和stop兜底共用）
+void AsyncLogger::writeOne(const std::string& log_str)
+{
+  std::cout<<log_str;
+  if (log_file_.is_open())
+  {
+    log_file_<<log_str;
+    log_file_.flush();
+  }
+}
+
 //日志写入接口（生产者）：完成日志格式化-->加锁入队-->通知消费线程
 void AsyncLogger::log(Logger::Level level,const std::string& message)
 {
+  // 停止后拒绝新日志（缩小竞态窗口，兜底在stop()中）
+  if (stop_flag_.load(std::memory_order_acquire)) return;
+
   //格式化日志
   std::ostringstream oss;
   oss<<getCurrentTime()<<"【PID："<<getpid()<<"】"
@@ -106,7 +117,7 @@ void AsyncLogger::log(Logger::Level level,const std::string& message)
   //加锁保护队列，将格式化后的日志字符串加入队列
   {
     std::lock_guard<std::mutex> lock(queue_mutex_);
-    log_queue_.push(log_str);
+    log_queue_.push(std::move(log_str));
   }
   cv_.notify_one();	//通知后台线程有新日志可处理
 }
@@ -146,28 +157,29 @@ void AsyncLogger::worker()
       //从队列头部取出一条日志并弹出
       if (!log_queue_.empty())
       {
-        log_str=log_queue_.front();
+        log_str=std::move(log_queue_.front());
         log_queue_.pop();
       }
     }
-    //解锁后执行耗时IO操作：输出到控制台
-    std::cout<<log_str;
-    //输出到日志文件并立即刷新缓冲区
-    if (log_file_.is_open())
-    {
-      log_file_<<log_str;
-      log_file_.flush();
-    }
+    writeOne(log_str);
   }
 }
 
 //停止异步日志模块：设置停止标志，唤醒线程，等待工作线程执行完毕后回收线程资源
+//随后兜底排空队列，防止工作线程break后生产者新入队的消息丢失
 void AsyncLogger::stop()
 {
-  stop_flag_=true;
-  cv_.notify_one(); //唤醒阻塞在条件变量上的后台工作线程
-  //主线程等待后台工作线程执行完毕，回收线程资源
+  stop_flag_.store(true, std::memory_order_release);
+  cv_.notify_one();
   if (worker_thread_.joinable()) worker_thread_.join();
+
+  std::unique_lock<std::mutex> lock(queue_mutex_);
+  while (!log_queue_.empty())
+  {
+    std::string msg = std::move(log_queue_.front());
+    log_queue_.pop();
+    lock.unlock();
+    writeOne(msg);
+    lock.lock();
+  }
 }
-  
-    
